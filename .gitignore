@@ -5,3 +5,5 @@ prisma/dev.db-journal
 next-env.d.ts
 package-lock.json
 tsconfig.seed.json
+.env.local
+.env*.local

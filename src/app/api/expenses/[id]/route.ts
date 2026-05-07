@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { doc, getDoc, deleteDoc } from 'firebase/firestore'
+import { db } from '@/lib/firebase'
 
 export async function DELETE(
   request: NextRequest,
@@ -7,15 +8,14 @@ export async function DELETE(
 ) {
   try {
     const { id } = params
+    const docRef = doc(db, 'expenses', id)
+    const snapshot = await getDoc(docRef)
 
-    const expense = await prisma.expense.findUnique({ where: { id } })
-
-    if (!expense) {
+    if (!snapshot.exists()) {
       return NextResponse.json({ error: 'Despesa não encontrada' }, { status: 404 })
     }
 
-    await prisma.expense.delete({ where: { id } })
-
+    await deleteDoc(docRef)
     return NextResponse.json({ message: 'Despesa excluída com sucesso' })
   } catch (error) {
     console.error('Error deleting expense:', error)

@@ -1,12 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import {
+  collection,
+  addDoc,
+  getDocs,
+  query,
+  where,
+  orderBy,
+  Timestamp,
+} from 'firebase/firestore'
+import { db } from '@/lib/firebase'
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
-    const payments = await prisma.payment.findMany({
-      orderBy: [{ year: 'desc' }, { month: 'desc' }],
-    })
-
+    const q = query(
+      collection(db, 'payments'),
+      orderBy('year', 'desc'),
+      orderBy('month', 'desc')
+    )
+    const snapshot = await getDocs(q)
+    const payments = snapshot.docs.map((d) => ({
+      id: d.id,
+      ...d.data(),
+      paidAt: d.data().paidAt?.toDate?.()?.toISOString() ?? d.data().paidAt,
+    }))
     return NextResponse.json(payments)
   } catch (error) {
     console.error('Error fetching payments:', error)
@@ -23,31 +39,34 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Mês e ano são obrigatórios' }, { status: 400 })
     }
 
-    // Check if already paid
-    const existingPayment = await prisma.payment.findFirst({
-      where: { month: parseInt(month), year: parseInt(year) },
-    })
+    const monthNum = parseInt(month)
+    const yearNum = parseInt(year)
 
-    if (existingPayment) {
-      return NextResponse.json(
-        { error: 'Este mês já foi pago' },
-        { status: 409 }
+    // Check if already paid
+    const existing = await getDocs(
+      query(
+        collection(db, 'payments'),
+        where('month', '==', monthNum),
+        where('year', '==', yearNum)
       )
+    )
+    if (!existing.empty) {
+      return NextResponse.json({ error: 'Este mês já foi pago' }, { status: 409 })
     }
 
-    // Calculate total for the month
-    const startDate = new Date(parseInt(year), parseInt(month) - 1, 1)
-    const endDate = new Date(parseInt(year), parseInt(month), 0, 23, 59, 59, 999)
+    // Get all expenses for the month
+    const startDate = Timestamp.fromDate(new Date(yearNum, monthNum - 1, 1))
+    const endDate = Timestamp.fromDate(new Date(yearNum, monthNum, 0, 23, 59, 59, 999))
 
-    const expenses = await prisma.expense.findMany({
-      where: {
-        date: {
-          gte: startDate,
-          lte: endDate,
-        },
-      },
-    })
+    const expSnap = await getDocs(
+      query(
+        collection(db, 'expenses'),
+        where('date', '>=', startDate),
+        where('date', '<=', endDate)
+      )
+    )
 
+    const expenses = expSnap.docs.map((d) => d.data())
     const totalAmount = expenses.reduce((sum, e) => sum + e.amount, 0)
 
     const sharedTotal = expenses
@@ -62,21 +81,16 @@ export async function POST(request: NextRequest) {
       .filter((e) => e.splitType === 'user2_only')
       .reduce((sum, e) => sum + e.amount, 0)
 
-    const user1Amount = sharedTotal / 2 + user1OnlyTotal
-    const user2Amount = sharedTotal / 2 + user2OnlyTotal
-
-    const payment = await prisma.payment.create({
-      data: {
-        amount: totalAmount,
-        user1Amount,
-        user2Amount,
-        month: parseInt(month),
-        year: parseInt(year),
-        paidAt: new Date(),
-      },
+    const docRef = await addDoc(collection(db, 'payments'), {
+      amount: totalAmount,
+      user1Amount: sharedTotal / 2 + user1OnlyTotal,
+      user2Amount: sharedTotal / 2 + user2OnlyTotal,
+      month: monthNum,
+      year: yearNum,
+      paidAt: Timestamp.now(),
     })
 
-    return NextResponse.json(payment, { status: 201 })
+    return NextResponse.json({ id: docRef.id }, { status: 201 })
   } catch (error) {
     console.error('Error creating payment:', error)
     return NextResponse.json({ error: 'Erro ao registrar pagamento' }, { status: 500 })

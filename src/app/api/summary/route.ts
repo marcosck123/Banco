@@ -1,5 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import {
+  collection,
+  getDocs,
+  query,
+  where,
+  doc,
+  getDoc,
+  setDoc,
+  Timestamp,
+} from 'firebase/firestore'
+import { db } from '@/lib/firebase'
+
+const DEFAULT_SETTINGS = {
+  creditLimit: 65000,
+  user1Name: 'Você',
+  user2Name: 'Namorada',
+}
+
+async function getSettings() {
+  const settingsRef = doc(db, 'settings', 'default')
+  const snap = await getDoc(settingsRef)
+  if (!snap.exists()) {
+    await setDoc(settingsRef, DEFAULT_SETTINGS)
+    return DEFAULT_SETTINGS
+  }
+  return snap.data() as typeof DEFAULT_SETTINGS
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -11,32 +37,29 @@ export async function GET(request: NextRequest) {
     const month = monthParam ? parseInt(monthParam) : now.getMonth() + 1
     const year = yearParam ? parseInt(yearParam) : now.getFullYear()
 
-    const startDate = new Date(year, month - 1, 1)
-    const endDate = new Date(year, month, 0, 23, 59, 59, 999)
+    const startDate = Timestamp.fromDate(new Date(year, month - 1, 1))
+    const endDate = Timestamp.fromDate(new Date(year, month, 0, 23, 59, 59, 999))
 
-    // Get all expenses for the month
-    const expenses = await prisma.expense.findMany({
-      where: {
-        date: {
-          gte: startDate,
-          lte: endDate,
-        },
-      },
-    })
+    const [settings, expSnap, paySnap] = await Promise.all([
+      getSettings(),
+      getDocs(
+        query(
+          collection(db, 'expenses'),
+          where('date', '>=', startDate),
+          where('date', '<=', endDate)
+        )
+      ),
+      getDocs(
+        query(
+          collection(db, 'payments'),
+          where('month', '==', month),
+          where('year', '==', year)
+        )
+      ),
+    ])
 
-    // Get settings
-    const settings = await prisma.settings.findUnique({
-      where: { id: 'default' },
-    })
-
-    const creditLimit = settings?.creditLimit ?? 65000
-    const user1Name = settings?.user1Name ?? 'Você'
-    const user2Name = settings?.user2Name ?? 'Namorada'
-
-    // Check if this month has been paid
-    const payment = await prisma.payment.findFirst({
-      where: { month, year },
-    })
+    const expenses = expSnap.docs.map((d) => d.data())
+    const payment = paySnap.empty ? null : { id: paySnap.docs[0].id, ...paySnap.docs[0].data() }
 
     const totalSpent = expenses.reduce((sum, e) => sum + e.amount, 0)
 
@@ -60,11 +83,8 @@ export async function GET(request: NextRequest) {
       .filter((e) => e.paidBy === 'user2')
       .reduce((sum, e) => sum + e.amount, 0)
 
-    // Each person's share of the bill
     const user1Due = sharedTotal / 2 + user1OnlyTotal
     const user2Due = sharedTotal / 2 + user2OnlyTotal
-
-    const availableBalance = creditLimit - totalSpent
 
     return NextResponse.json({
       month,
@@ -77,13 +97,13 @@ export async function GET(request: NextRequest) {
       user2Spent,
       user1Due,
       user2Due,
-      availableBalance,
-      creditLimit,
+      availableBalance: settings.creditLimit - totalSpent,
+      creditLimit: settings.creditLimit,
       eachShare: totalSpent / 2,
       isPaid: !!payment,
-      payment: payment || null,
-      user1Name,
-      user2Name,
+      payment,
+      user1Name: settings.user1Name,
+      user2Name: settings.user2Name,
       expenseCount: expenses.length,
     })
   } catch (error) {
