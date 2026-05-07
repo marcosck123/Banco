@@ -17,15 +17,18 @@ model Expense {
   paidBy      String   // "user1" or "user2"
   category    String
   date        DateTime
+  splitType   String   @default("shared") // "shared" | "user1_only" | "user2_only"
   createdAt   DateTime @default(now())
 }
 
 model Payment {
-  id        String   @id @default(cuid())
-  amount    Float    // total paid (both share)
-  month     Int      // 1-12
-  year      Int
-  paidAt    DateTime @default(now())
+  id          String   @id @default(cuid())
+  amount      Float
+  user1Amount Float    @default(0)
+  user2Amount Float    @default(0)
+  month       Int
+  year        Int
+  paidAt      DateTime @default(now())
 }
 
 model Settings {

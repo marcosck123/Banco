@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { amount, description, paidBy, category, date } = body
+    const { amount, description, paidBy, category, date, splitType = 'shared' } = body
 
     if (!amount || !description || !paidBy || !category || !date) {
       return NextResponse.json({ error: 'Todos os campos são obrigatórios' }, { status: 400 })
@@ -48,6 +48,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Pagador inválido' }, { status: 400 })
     }
 
+    if (!['shared', 'user1_only', 'user2_only'].includes(splitType)) {
+      return NextResponse.json({ error: 'Tipo de divisão inválido' }, { status: 400 })
+    }
+
     const expense = await prisma.expense.create({
       data: {
         amount: parseFloat(amount),
@@ -55,6 +59,7 @@ export async function POST(request: NextRequest) {
         paidBy,
         category,
         date: new Date(date),
+        splitType,
       },
     })
 

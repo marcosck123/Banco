@@ -38,27 +38,48 @@ export async function GET(request: NextRequest) {
       where: { month, year },
     })
 
-    // Calculate totals
     const totalSpent = expenses.reduce((sum, e) => sum + e.amount, 0)
+
+    const sharedTotal = expenses
+      .filter((e) => e.splitType === 'shared' || !e.splitType)
+      .reduce((sum, e) => sum + e.amount, 0)
+
+    const user1OnlyTotal = expenses
+      .filter((e) => e.splitType === 'user1_only')
+      .reduce((sum, e) => sum + e.amount, 0)
+
+    const user2OnlyTotal = expenses
+      .filter((e) => e.splitType === 'user2_only')
+      .reduce((sum, e) => sum + e.amount, 0)
+
     const user1Spent = expenses
       .filter((e) => e.paidBy === 'user1')
       .reduce((sum, e) => sum + e.amount, 0)
+
     const user2Spent = expenses
       .filter((e) => e.paidBy === 'user2')
       .reduce((sum, e) => sum + e.amount, 0)
 
+    // Each person's share of the bill
+    const user1Due = sharedTotal / 2 + user1OnlyTotal
+    const user2Due = sharedTotal / 2 + user2OnlyTotal
+
     const availableBalance = creditLimit - totalSpent
-    const eachShare = totalSpent / 2
 
     return NextResponse.json({
       month,
       year,
       totalSpent,
+      sharedTotal,
+      user1OnlyTotal,
+      user2OnlyTotal,
       user1Spent,
       user2Spent,
+      user1Due,
+      user2Due,
       availableBalance,
       creditLimit,
-      eachShare,
+      eachShare: totalSpent / 2,
       isPaid: !!payment,
       payment: payment || null,
       user1Name,

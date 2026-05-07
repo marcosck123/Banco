@@ -50,9 +50,26 @@ export async function POST(request: NextRequest) {
 
     const totalAmount = expenses.reduce((sum, e) => sum + e.amount, 0)
 
+    const sharedTotal = expenses
+      .filter((e) => e.splitType === 'shared' || !e.splitType)
+      .reduce((sum, e) => sum + e.amount, 0)
+
+    const user1OnlyTotal = expenses
+      .filter((e) => e.splitType === 'user1_only')
+      .reduce((sum, e) => sum + e.amount, 0)
+
+    const user2OnlyTotal = expenses
+      .filter((e) => e.splitType === 'user2_only')
+      .reduce((sum, e) => sum + e.amount, 0)
+
+    const user1Amount = sharedTotal / 2 + user1OnlyTotal
+    const user2Amount = sharedTotal / 2 + user2OnlyTotal
+
     const payment = await prisma.payment.create({
       data: {
         amount: totalAmount,
+        user1Amount,
+        user2Amount,
         month: parseInt(month),
         year: parseInt(year),
         paidAt: new Date(),
