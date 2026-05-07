@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { amount, description, paidBy, category, date, splitType = 'shared' } = body
+    const { amount, description, paidBy, category, date, splitType = 'shared', recordType = 'despesa' } = body
 
     if (!amount || !description || !paidBy || !category || !date) {
       return NextResponse.json({ error: 'Todos os campos são obrigatórios' }, { status: 400 })
@@ -66,6 +66,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Tipo de divisão inválido' }, { status: 400 })
     }
 
+    if (!['despesa', 'pagamento', 'investimento'].includes(recordType)) {
+      return NextResponse.json({ error: 'Tipo de registro inválido' }, { status: 400 })
+    }
+
     const docRef = await addDoc(collection(db, 'expenses'), {
       amount: parseFloat(amount),
       description,
@@ -73,6 +77,7 @@ export async function POST(request: NextRequest) {
       category,
       date: Timestamp.fromDate(new Date(date)),
       splitType,
+      recordType,
       createdAt: Timestamp.now(),
     })
 

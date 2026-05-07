@@ -61,25 +61,30 @@ export async function GET(request: NextRequest) {
     const expenses = expSnap.docs.map((d) => d.data())
     const payment = paySnap.empty ? null : { id: paySnap.docs[0].id, ...paySnap.docs[0].data() }
 
-    const totalSpent = expenses.reduce((sum, e) => sum + e.amount, 0)
+    // Separate investments from outflows
+    const investments = expenses.filter((e) => e.recordType === 'investimento')
+    const outflows = expenses.filter((e) => e.recordType !== 'investimento')
 
-    const sharedTotal = expenses
+    const totalInvested = investments.reduce((sum, e) => sum + e.amount, 0)
+    const totalSpent = outflows.reduce((sum, e) => sum + e.amount, 0)
+
+    const sharedTotal = outflows
       .filter((e) => e.splitType === 'shared' || !e.splitType)
       .reduce((sum, e) => sum + e.amount, 0)
 
-    const user1OnlyTotal = expenses
+    const user1OnlyTotal = outflows
       .filter((e) => e.splitType === 'user1_only')
       .reduce((sum, e) => sum + e.amount, 0)
 
-    const user2OnlyTotal = expenses
+    const user2OnlyTotal = outflows
       .filter((e) => e.splitType === 'user2_only')
       .reduce((sum, e) => sum + e.amount, 0)
 
-    const user1Spent = expenses
+    const user1Invested = investments
       .filter((e) => e.paidBy === 'user1')
       .reduce((sum, e) => sum + e.amount, 0)
 
-    const user2Spent = expenses
+    const user2Invested = investments
       .filter((e) => e.paidBy === 'user2')
       .reduce((sum, e) => sum + e.amount, 0)
 
@@ -90,21 +95,23 @@ export async function GET(request: NextRequest) {
       month,
       year,
       totalSpent,
+      totalInvested,
       sharedTotal,
       user1OnlyTotal,
       user2OnlyTotal,
-      user1Spent,
-      user2Spent,
+      user1Invested,
+      user2Invested,
       user1Due,
       user2Due,
-      availableBalance: settings.creditLimit - totalSpent,
+      availableBalance: settings.creditLimit + totalInvested - totalSpent,
       creditLimit: settings.creditLimit,
       eachShare: totalSpent / 2,
       isPaid: !!payment,
       payment,
       user1Name: settings.user1Name,
       user2Name: settings.user2Name,
-      expenseCount: expenses.length,
+      expenseCount: outflows.length,
+      investmentCount: investments.length,
     })
   } catch (error) {
     console.error('Error fetching summary:', error)
