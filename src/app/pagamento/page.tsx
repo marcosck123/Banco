@@ -1,25 +1,18 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { formatCurrency, getMonthName } from '@/lib/utils'
+import { formatCurrency, formatDate, getMonthName, CATEGORY_ICONS } from '@/lib/utils'
 
-interface Summary {
-  month: number
-  year: number
-  totalSpent: number
-  sharedTotal: number
-  user1OnlyTotal: number
-  user2OnlyTotal: number
-  user1Spent: number
-  user2Spent: number
-  user1Due: number
-  user2Due: number
-  eachShare: number
-  isPaid: boolean
-  payment: Payment | null
-  user1Name: string
-  user2Name: string
-  expenseCount: number
+interface Expense {
+  id: string
+  amount: number
+  description: string
+  paidBy: string
+  category: string
+  date: string
+  splitType: string
+  recordType: string
+  paid: boolean
 }
 
 interface Payment {
@@ -30,12 +23,40 @@ interface Payment {
   month: number
   year: number
   paidAt: string
+  expenseCount: number
+}
+
+interface Names {
+  user1Name: string
+  user2Name: string
+}
+
+function calcSplit(expenses: Expense[]) {
+  const sharedTotal = expenses
+    .filter((e) => e.splitType === 'shared' || !e.splitType)
+    .reduce((sum, e) => sum + e.amount, 0)
+  const user1Only = expenses
+    .filter((e) => e.splitType === 'user1_only')
+    .reduce((sum, e) => sum + e.amount, 0)
+  const user2Only = expenses
+    .filter((e) => e.splitType === 'user2_only')
+    .reduce((sum, e) => sum + e.amount, 0)
+  return {
+    total: expenses.reduce((sum, e) => sum + e.amount, 0),
+    user1Due: sharedTotal / 2 + user1Only,
+    user2Due: sharedTotal / 2 + user2Only,
+    sharedTotal,
+  }
 }
 
 export default function Pagamento() {
   const now = new Date()
-  const [summary, setSummary] = useState<Summary | null>(null)
+  const [month, setMonth] = useState(now.getMonth() + 1)
+  const [year, setYear] = useState(now.getFullYear())
+  const [expenses, setExpenses] = useState<Expense[]>([])
   const [payments, setPayments] = useState<Payment[]>([])
+  const [names, setNames] = useState<Names>({ user1Name: 'Você', user2Name: 'Namorada' })
+  const [selected, setSelected] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [paying, setPaying] = useState(false)
   const [error, setError] = useState('')
@@ -44,16 +65,22 @@ export default function Pagamento() {
   const fetchData = async () => {
     setLoading(true)
     try {
-      const month = now.getMonth() + 1
-      const year = now.getFullYear()
-      const [sumRes, payRes] = await Promise.all([
-        fetch(`/api/summary?month=${month}&year=${year}`),
+      const [expRes, payRes, sumRes] = await Promise.all([
+        fetch(`/api/expenses?month=${month}&year=${year}`),
         fetch('/api/payments'),
+        fetch(`/api/summary?month=${month}&year=${year}`),
       ])
+      const expData: Expense[] = await expRes.json()
+      const payData: Payment[] = await payRes.json()
       const sumData = await sumRes.json()
-      const payData = await payRes.json()
-      setSummary(sumData)
+
+      // Only show outflows (not investments)
+      const outflows = expData.filter((e) => e.recordType !== 'investimento' && !e.paid)
+      setExpenses(outflows)
       setPayments(payData)
+      setNames({ user1Name: sumData.user1Name, user2Name: sumData.user2Name })
+      // Pre-select all
+      setSelected(new Set(outflows.map((e) => e.id)))
     } catch (err) {
       console.error(err)
     } finally {
@@ -61,19 +88,33 @@ export default function Pagamento() {
     }
   }
 
-  useEffect(() => {
-    fetchData()
-  }, [])
+  useEffect(() => { fetchData() }, [month, year])
+
+  const toggleExpense = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  const toggleAll = () => {
+    if (selected.size === expenses.length) setSelected(new Set())
+    else setSelected(new Set(expenses.map((e) => e.id)))
+  }
+
+  const selectedExpenses = expenses.filter((e) => selected.has(e.id))
+  const { total, user1Due, user2Due, sharedTotal } = calcSplit(selectedExpenses)
 
   const handlePay = async () => {
-    if (!summary) return
+    if (selected.size === 0) return
     setPaying(true)
     setError('')
     try {
       const res = await fetch('/api/payments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ month: summary.month, year: summary.year }),
+        body: JSON.stringify({ expenseIds: Array.from(selected), month, year }),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -89,157 +130,149 @@ export default function Pagamento() {
     }
   }
 
-  const formatMonthYear = (month: number, year: number) => {
-    return `${getMonthName(month)} ${year}`
-  }
+  const formatDateTime = (dateStr: string) =>
+    new Intl.DateTimeFormat('pt-BR', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    }).format(new Date(dateStr))
 
-  const formatDateTime = (dateStr: string) => {
-    const d = new Date(dateStr)
-    return new Intl.DateTimeFormat('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    }).format(d)
+  const prevMonth = () => {
+    if (month === 1) { setMonth(12); setYear((y) => y - 1) }
+    else setMonth((m) => m - 1)
+  }
+  const nextMonth = () => {
+    if (month === 12) { setMonth(1); setYear((y) => y + 1) }
+    else setMonth((m) => m + 1)
   }
 
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-emerald-600"></div>
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-emerald-600" />
       </div>
     )
   }
 
   return (
     <div className="py-6 space-y-6">
-      {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-emerald-900">Pagamento</h1>
-        <p className="text-emerald-600 text-sm">Feche a fatura do mês</p>
+        <h1 className="text-2xl font-bold text-emerald-900">Pagar Fatura</h1>
+        <p className="text-emerald-600 text-sm">Selecione as despesas para pagar</p>
       </div>
 
-      {/* Current month bill */}
-      {summary && (
-        <div className={`rounded-2xl overflow-hidden shadow-lg ${
-          summary.isPaid
-            ? 'bg-gradient-to-br from-gray-600 to-gray-700'
-            : 'bg-gradient-to-br from-emerald-600 to-emerald-800'
-        }`}>
-          <div className="p-5 text-white">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <p className="text-emerald-100 text-sm">Fatura de</p>
-                <p className="text-lg font-bold">{formatMonthYear(summary.month, summary.year)}</p>
-              </div>
-              {summary.isPaid ? (
-                <span className="bg-white/20 text-white text-xs font-semibold px-3 py-1 rounded-full">
-                  ✅ PAGO
-                </span>
-              ) : (
-                <span className="bg-yellow-400/20 text-yellow-200 text-xs font-semibold px-3 py-1 rounded-full border border-yellow-400/30">
-                  ⏳ ABERTO
-                </span>
-              )}
-            </div>
+      {/* Month navigator */}
+      <div className="bg-white rounded-2xl p-4 shadow-sm border border-emerald-50 flex items-center justify-between">
+        <button onClick={prevMonth} className="w-10 h-10 flex items-center justify-center rounded-xl hover:bg-gray-100 transition-colors">
+          <svg className="w-5 h-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+        <p className="font-bold text-gray-800">{getMonthName(month)} {year}</p>
+        <button onClick={nextMonth} className="w-10 h-10 flex items-center justify-center rounded-xl hover:bg-gray-100 transition-colors">
+          <svg className="w-5 h-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+      </div>
 
-            <div className="text-center py-4">
-              <p className="text-emerald-100 text-sm">Total da fatura</p>
-              <p className="text-4xl font-bold mt-1">{formatCurrency(summary.totalSpent)}</p>
-              <p className="text-emerald-200 text-xs mt-1">{summary.expenseCount} despesas</p>
-            </div>
-
-            <div className="bg-white/10 rounded-xl p-3 mt-2">
-              <p className="text-center text-emerald-100 text-xs mb-3 font-medium">
-                Quanto cada um deve
-              </p>
-              <div className="flex justify-around">
-                <div className="text-center">
-                  <p className="text-white/70 text-xs">{summary.user1Name}</p>
-                  <p className="font-bold text-white">{formatCurrency(summary.user1Due)}</p>
-                  {summary.user1OnlyTotal > 0 && (
-                    <p className="text-white/50 text-xs">incl. {formatCurrency(summary.user1OnlyTotal)} individual</p>
-                  )}
-                </div>
-                <div className="w-px bg-white/20" />
-                <div className="text-center">
-                  <p className="text-white/70 text-xs">{summary.user2Name}</p>
-                  <p className="font-bold text-white">{formatCurrency(summary.user2Due)}</p>
-                  {summary.user2OnlyTotal > 0 && (
-                    <p className="text-white/50 text-xs">incl. {formatCurrency(summary.user2OnlyTotal)} individual</p>
-                  )}
-                </div>
-              </div>
-              {(summary.user1OnlyTotal > 0 || summary.user2OnlyTotal > 0) && (
-                <p className="text-center text-white/40 text-xs mt-2">
-                  Compartilhado: {formatCurrency(summary.sharedTotal)} ({formatCurrency(summary.sharedTotal / 2)} cada)
-                </p>
-              )}
-            </div>
+      {/* Expense selection list */}
+      {expenses.length === 0 ? (
+        <div className="bg-white rounded-2xl py-12 text-center shadow-sm border border-emerald-50">
+          <p className="text-4xl mb-3">✅</p>
+          <p className="text-gray-700 font-semibold">Tudo pago!</p>
+          <p className="text-gray-400 text-sm mt-1">Nenhuma despesa pendente em {getMonthName(month)}</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl shadow-sm border border-emerald-50 overflow-hidden">
+          {/* Select all header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+            <button onClick={toggleAll} className="text-sm font-medium text-emerald-600 hover:text-emerald-700">
+              {selected.size === expenses.length ? 'Desmarcar todos' : 'Selecionar todos'}
+            </button>
+            <span className="text-xs text-gray-400">{selected.size}/{expenses.length} selecionados</span>
           </div>
 
-          {!summary.isPaid && summary.totalSpent > 0 && (
-            <div className="px-5 pb-5">
-              <button
-                onClick={() => setConfirmOpen(true)}
-                className="w-full bg-white text-emerald-700 font-bold py-3 rounded-xl hover:bg-emerald-50 transition-colors"
-              >
-                💳 Fechar fatura
-              </button>
-            </div>
-          )}
+          <ul className="divide-y divide-gray-50">
+            {expenses.map((expense) => {
+              const isSelected = selected.has(expense.id)
+              return (
+                <li
+                  key={expense.id}
+                  onClick={() => toggleExpense(expense.id)}
+                  className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors ${isSelected ? 'bg-emerald-50/50' : 'hover:bg-gray-50'}`}
+                >
+                  {/* Checkbox */}
+                  <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                    isSelected ? 'border-emerald-500 bg-emerald-500' : 'border-gray-300'
+                  }`}>
+                    {isSelected && (
+                      <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                  </div>
 
-          {summary.isPaid && summary.payment && (
-            <div className="px-5 pb-5">
-              <p className="text-center text-white/60 text-xs">
-                Pago em {formatDateTime(summary.payment.paidAt)}
-              </p>
-            </div>
-          )}
+                  <div className="text-xl w-8 text-center flex-shrink-0">
+                    {CATEGORY_ICONS[expense.category] || '📦'}
+                  </div>
 
-          {!summary.isPaid && summary.totalSpent === 0 && (
-            <div className="px-5 pb-5">
-              <p className="text-center text-white/60 text-xs">
-                Nenhuma despesa registrada neste mês
-              </p>
-            </div>
-          )}
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-gray-800 text-sm truncate">{expense.description}</p>
+                    <p className="text-gray-400 text-xs">
+                      {expense.category} · {formatDate(expense.date)}
+                      {expense.recordType === 'pagamento' && <span className="ml-1 text-orange-500">· Pagamento</span>}
+                    </p>
+                  </div>
+
+                  <div className="text-right flex-shrink-0">
+                    <p className="font-semibold text-gray-800 text-sm">{formatCurrency(expense.amount)}</p>
+                    <p className={`text-xs ${expense.splitType === 'user1_only' ? 'text-blue-500' : expense.splitType === 'user2_only' ? 'text-purple-500' : 'text-gray-400'}`}>
+                      {expense.splitType === 'user1_only' ? 'Só você' : expense.splitType === 'user2_only' ? 'Só ela' : '50/50'}
+                    </p>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
         </div>
       )}
 
-      {/* Balance adjustment info */}
-      {summary && !summary.isPaid && summary.totalSpent > 0 && (
-        <div className="bg-white rounded-2xl p-4 shadow-sm border border-emerald-50">
-          <h3 className="font-semibold text-gray-800 mb-3">Acerto entre vocês</h3>
-          {(() => {
-            // user1Spent = what user1 physically paid; user1Due = what user1 owes
-            // If user1Spent > user1Due, user2 owes user1 the difference
-            const diff = summary.user1Spent - summary.user1Due
-            const absDiff = Math.abs(diff)
-            if (absDiff < 0.01) {
-              return (
-                <p className="text-gray-500 text-sm">
-                  Tudo certo, nenhuma transferência necessária!
-                </p>
-              )
-            }
-            const payer = diff > 0 ? summary.user2Name : summary.user1Name
-            const receiver = diff > 0 ? summary.user1Name : summary.user2Name
-            return (
-              <div className="bg-orange-50 border border-orange-100 rounded-xl p-4 text-center">
-                <p className="text-xs text-gray-500">
-                  <span className="font-semibold text-orange-600">{payer}</span> deve transferir
-                </p>
-                <p className="text-2xl font-bold text-orange-600 mt-1">
-                  {formatCurrency(absDiff)}
-                </p>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  para <span className="font-semibold">{receiver}</span>
-                </p>
+      {/* Running total + pay button */}
+      {expenses.length > 0 && (
+        <div className="bg-gradient-to-br from-emerald-600 to-emerald-800 rounded-2xl p-5 text-white shadow-lg">
+          <div className="flex justify-between items-center mb-3">
+            <p className="text-emerald-100 text-sm">Total selecionado</p>
+            <p className="text-2xl font-bold">{formatCurrency(total)}</p>
+          </div>
+
+          {total > 0 && (
+            <div className="bg-white/10 rounded-xl p-3 mb-4">
+              <div className="flex justify-around">
+                <div className="text-center">
+                  <p className="text-white/70 text-xs">{names.user1Name}</p>
+                  <p className="font-bold text-white">{formatCurrency(user1Due)}</p>
+                </div>
+                <div className="w-px bg-white/20" />
+                <div className="text-center">
+                  <p className="text-white/70 text-xs">{names.user2Name}</p>
+                  <p className="font-bold text-white">{formatCurrency(user2Due)}</p>
+                </div>
               </div>
-            )
-          })()}
+              {sharedTotal > 0 && (
+                <p className="text-center text-white/40 text-xs mt-2">
+                  {formatCurrency(sharedTotal)} compartilhado · {formatCurrency(sharedTotal / 2)} cada
+                </p>
+              )}
+            </div>
+          )}
+
+          <button
+            onClick={() => setConfirmOpen(true)}
+            disabled={selected.size === 0}
+            className="w-full bg-white text-emerald-700 font-bold py-3 rounded-xl hover:bg-emerald-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            💳 Pagar {selected.size} {selected.size === 1 ? 'despesa' : 'despesas'}
+          </button>
         </div>
       )}
 
@@ -251,11 +284,11 @@ export default function Pagamento() {
 
       {/* Past payments */}
       <div>
-        <h2 className="font-bold text-gray-800 mb-3">Faturas anteriores</h2>
+        <h2 className="font-bold text-gray-800 mb-3">Pagamentos realizados</h2>
         {payments.length === 0 ? (
           <div className="bg-white rounded-2xl py-10 text-center shadow-sm border border-emerald-50">
             <p className="text-3xl mb-2">📅</p>
-            <p className="text-gray-500 text-sm">Nenhuma fatura paga ainda</p>
+            <p className="text-gray-500 text-sm">Nenhum pagamento ainda</p>
           </div>
         ) : (
           <div className="bg-white rounded-2xl shadow-sm border border-emerald-50 overflow-hidden">
@@ -269,9 +302,11 @@ export default function Pagamento() {
                   </div>
                   <div className="flex-1">
                     <p className="font-medium text-gray-800 text-sm">
-                      {formatMonthYear(payment.month, payment.year)}
+                      {getMonthName(payment.month)} {payment.year}
                     </p>
-                    <p className="text-gray-400 text-xs">{formatDateTime(payment.paidAt)}</p>
+                    <p className="text-gray-400 text-xs">
+                      {payment.expenseCount} {payment.expenseCount === 1 ? 'despesa' : 'despesas'} · {formatDateTime(payment.paidAt)}
+                    </p>
                   </div>
                   <div className="text-right">
                     <p className="font-semibold text-gray-800 text-sm">{formatCurrency(payment.amount)}</p>
@@ -290,46 +325,36 @@ export default function Pagamento() {
         )}
       </div>
 
-      {/* Confirmation Modal */}
-      {confirmOpen && summary && (
+      {/* Confirmation modal */}
+      {confirmOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50 p-4">
           <div className="bg-white rounded-3xl w-full max-w-md p-6 space-y-4 shadow-2xl">
             <div className="text-center">
               <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-3">
                 <span className="text-3xl">💳</span>
               </div>
-              <h3 className="text-xl font-bold text-gray-800">Fechar fatura?</h3>
+              <h3 className="text-xl font-bold text-gray-800">Confirmar pagamento?</h3>
               <p className="text-gray-500 text-sm mt-1">
-                {getMonthName(summary.month)} {summary.year}
+                {selected.size} {selected.size === 1 ? 'despesa' : 'despesas'} de {getMonthName(month)} {year}
               </p>
             </div>
 
             <div className="bg-emerald-50 rounded-2xl p-4 space-y-2">
               <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Total da fatura</span>
-                <span className="font-bold text-gray-800">{formatCurrency(summary.totalSpent)}</span>
+                <span className="text-gray-600">Total</span>
+                <span className="font-bold text-gray-800">{formatCurrency(total)}</span>
               </div>
-              {summary.sharedTotal > 0 && (
+              <div className="border-t border-emerald-100 pt-2 space-y-1">
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-400 text-xs">Compartilhado (50/50)</span>
-                  <span className="text-gray-500 text-xs">{formatCurrency(summary.sharedTotal)}</span>
-                </div>
-              )}
-              <div className="border-t border-emerald-100 pt-2 mt-1 space-y-1">
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">{summary.user1Name} deve</span>
-                  <span className="font-semibold text-blue-600">{formatCurrency(summary.user1Due)}</span>
+                  <span className="text-gray-600">{names.user1Name} paga</span>
+                  <span className="font-semibold text-blue-600">{formatCurrency(user1Due)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">{summary.user2Name} deve</span>
-                  <span className="font-semibold text-purple-600">{formatCurrency(summary.user2Due)}</span>
+                  <span className="text-gray-600">{names.user2Name} paga</span>
+                  <span className="font-semibold text-purple-600">{formatCurrency(user2Due)}</span>
                 </div>
               </div>
             </div>
-
-            <p className="text-center text-gray-500 text-xs">
-              Isso irá registrar o pagamento e liberar o saldo para o próximo mês.
-            </p>
 
             <div className="flex gap-3">
               <button

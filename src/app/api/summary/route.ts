@@ -61,22 +61,23 @@ export async function GET(request: NextRequest) {
     const expenses = expSnap.docs.map((d) => d.data())
     const payment = paySnap.empty ? null : { id: paySnap.docs[0].id, ...paySnap.docs[0].data() }
 
-    // Separate investments from outflows
     const investments = expenses.filter((e) => e.recordType === 'investimento')
     const outflows = expenses.filter((e) => e.recordType !== 'investimento')
+    const unpaidOutflows = outflows.filter((e) => !e.paid)
 
     const totalInvested = investments.reduce((sum, e) => sum + e.amount, 0)
     const totalSpent = outflows.reduce((sum, e) => sum + e.amount, 0)
+    const totalPaid = outflows.filter((e) => e.paid).reduce((sum, e) => sum + e.amount, 0)
 
-    const sharedTotal = outflows
+    const sharedTotal = unpaidOutflows
       .filter((e) => e.splitType === 'shared' || !e.splitType)
       .reduce((sum, e) => sum + e.amount, 0)
 
-    const user1OnlyTotal = outflows
+    const user1OnlyTotal = unpaidOutflows
       .filter((e) => e.splitType === 'user1_only')
       .reduce((sum, e) => sum + e.amount, 0)
 
-    const user2OnlyTotal = outflows
+    const user2OnlyTotal = unpaidOutflows
       .filter((e) => e.splitType === 'user2_only')
       .reduce((sum, e) => sum + e.amount, 0)
 
@@ -95,6 +96,8 @@ export async function GET(request: NextRequest) {
       month,
       year,
       totalSpent,
+      totalPaid,
+      totalUnpaid: totalSpent - totalPaid,
       totalInvested,
       sharedTotal,
       user1OnlyTotal,
@@ -106,7 +109,7 @@ export async function GET(request: NextRequest) {
       availableBalance: settings.creditLimit + totalInvested - totalSpent,
       creditLimit: settings.creditLimit,
       eachShare: totalSpent / 2,
-      isPaid: !!payment,
+      isPaid: unpaidOutflows.length === 0 && outflows.length > 0,
       payment,
       user1Name: settings.user1Name,
       user2Name: settings.user2Name,
