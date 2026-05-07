@@ -83,6 +83,7 @@ export default function NovaTransacao() {
           splitType: isInvestment ? 'shared' : form.splitType,
           recordType,
         }),
+        signal: AbortSignal.timeout(12000),
       })
 
       if (!res.ok) {
@@ -93,8 +94,12 @@ export default function NovaTransacao() {
 
       setSuccess(true)
       setTimeout(() => router.push('/'), 1200)
-    } catch {
-      setError('Erro de conexão. Tente novamente.')
+    } catch (err: any) {
+      if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
+        setError('Conexão lenta. Tente novamente.')
+      } else {
+        setError('Erro de conexão. Tente novamente.')
+      }
     } finally {
       setLoading(false)
     }

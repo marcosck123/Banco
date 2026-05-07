@@ -45,14 +45,15 @@ export default function Historico() {
 
   const fetchExpenses = async () => {
     setLoading(true)
+    const signal = AbortSignal.timeout(12000)
     try {
       const [expRes, sumRes] = await Promise.all([
-        fetch(`/api/expenses?month=${month}&year=${year}`),
-        fetch(`/api/summary?month=${month}&year=${year}`),
+        fetch(`/api/expenses?month=${month}&year=${year}`, { signal }),
+        fetch(`/api/summary?month=${month}&year=${year}`, { signal }),
       ])
-      const expData = await expRes.json()
+      const expRaw = await expRes.json()
       const sumData = await sumRes.json()
-      setExpenses(expData)
+      setExpenses(Array.isArray(expRaw) ? expRaw : [])
       setSummary(sumData)
     } catch (err) {
       console.error(err)

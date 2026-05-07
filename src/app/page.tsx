@@ -44,21 +44,22 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
 
   const fetchData = async () => {
+    const signal = AbortSignal.timeout(12000)
     try {
       const now = new Date()
       const month = now.getMonth() + 1
       const year = now.getFullYear()
 
       const [summaryRes, expensesRes] = await Promise.all([
-        fetch(`/api/summary?month=${month}&year=${year}`),
-        fetch(`/api/expenses?month=${month}&year=${year}`),
+        fetch(`/api/summary?month=${month}&year=${year}`, { signal }),
+        fetch(`/api/expenses?month=${month}&year=${year}`, { signal }),
       ])
 
       const summaryData = await summaryRes.json()
-      const expensesData = await expensesRes.json()
+      const expensesRaw = await expensesRes.json()
 
       setSummary(summaryData)
-      setRecentExpenses(expensesData.slice(0, 5))
+      setRecentExpenses(Array.isArray(expensesRaw) ? expensesRaw.slice(0, 5) : [])
     } catch (error) {
       console.error('Error fetching data:', error)
     } finally {

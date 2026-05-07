@@ -64,25 +64,33 @@ export default function Pagamento() {
 
   const fetchData = async () => {
     setLoading(true)
+    const signal = AbortSignal.timeout(12000)
     try {
       const [expRes, payRes, sumRes] = await Promise.all([
-        fetch(`/api/expenses?month=${month}&year=${year}`),
-        fetch('/api/payments'),
-        fetch(`/api/summary?month=${month}&year=${year}`),
+        fetch(`/api/expenses?month=${month}&year=${year}`, { signal }),
+        fetch('/api/payments', { signal }),
+        fetch(`/api/summary?month=${month}&year=${year}`, { signal }),
       ])
-      const expData: Expense[] = await expRes.json()
-      const payData: Payment[] = await payRes.json()
-      const sumData = await sumRes.json()
 
-      // Only show outflows (not investments)
+      const [expRaw, payRaw, sumData] = await Promise.all([
+        expRes.json(),
+        payRes.json(),
+        sumRes.json(),
+      ])
+
+      const expData: Expense[] = Array.isArray(expRaw) ? expRaw : []
+      const payData: Payment[] = Array.isArray(payRaw) ? payRaw : []
+
       const outflows = expData.filter((e) => e.recordType !== 'investimento' && !e.paid)
       setExpenses(outflows)
       setPayments(payData)
-      setNames({ user1Name: sumData.user1Name, user2Name: sumData.user2Name })
-      // Pre-select all
+      setNames({ user1Name: sumData.user1Name ?? 'Você', user2Name: sumData.user2Name ?? 'Namorada' })
       setSelected(new Set(outflows.map((e) => e.id)))
-    } catch (err) {
+    } catch (err: any) {
       console.error(err)
+      if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
+        setError('Conexão lenta. Verifique sua internet e tente novamente.')
+      }
     } finally {
       setLoading(false)
     }
@@ -115,6 +123,7 @@ export default function Pagamento() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ expenseIds: Array.from(selected), month, year }),
+        signal: AbortSignal.timeout(12000),
       })
       const data = await res.json()
       if (!res.ok) {
@@ -123,8 +132,12 @@ export default function Pagamento() {
       }
       setConfirmOpen(false)
       await fetchData()
-    } catch {
-      setError('Erro de conexão. Tente novamente.')
+    } catch (err: any) {
+      if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
+        setError('Conexão lenta. O pagamento pode ter sido processado — recarregue a página.')
+      } else {
+        setError('Erro de conexão. Tente novamente.')
+      }
     } finally {
       setPaying(false)
     }

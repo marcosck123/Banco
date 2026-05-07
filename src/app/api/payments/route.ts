@@ -16,8 +16,7 @@ export async function GET() {
   try {
     const q = query(
       collection(db, 'payments'),
-      orderBy('year', 'desc'),
-      orderBy('month', 'desc')
+      orderBy('paidAt', 'desc')
     )
     const snapshot = await getDocs(q)
     const payments = snapshot.docs.map((d) => ({
