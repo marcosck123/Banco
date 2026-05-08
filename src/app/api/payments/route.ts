@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Timestamp } from 'firebase-admin/firestore'
-import { db } from '@/lib/firebase'
+import { getDb } from '@/lib/firebase'
 
 export async function GET() {
   try {
+    const db = getDb()
     const snapshot = await db.collection('payments').orderBy('paidAt', 'desc').get()
     const payments = snapshot.docs.map((d) => ({
       id: d.id,
@@ -19,6 +20,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const db = getDb()
     const body = await request.json()
     const { expenseIds, month, year } = body
 

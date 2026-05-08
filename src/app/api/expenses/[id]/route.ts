@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { db } from '@/lib/firebase'
+import { getDb } from '@/lib/firebase'
 
 export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
+    const db = getDb()
     const { id } = params
     const docRef = db.collection('expenses').doc(id)
     const snapshot = await docRef.get()

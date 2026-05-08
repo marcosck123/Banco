@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Timestamp } from 'firebase-admin/firestore'
-import { db } from '@/lib/firebase'
+import { getDb } from '@/lib/firebase'
 
 const DEFAULT_SETTINGS = {
   creditLimit: 65000,
@@ -9,6 +9,7 @@ const DEFAULT_SETTINGS = {
 }
 
 async function getSettings() {
+  const db = getDb()
   const settingsRef = db.collection('settings').doc('default')
   const snap = await settingsRef.get()
   if (!snap.exists) {
@@ -20,6 +21,7 @@ async function getSettings() {
 
 export async function GET(request: NextRequest) {
   try {
+    const db = getDb()
     const searchParams = request.nextUrl.searchParams
     const monthParam = searchParams.get('month')
     const yearParam = searchParams.get('year')

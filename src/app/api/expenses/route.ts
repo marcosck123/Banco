@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Timestamp } from 'firebase-admin/firestore'
-import { db } from '@/lib/firebase'
+import { getDb } from '@/lib/firebase'
 
 export async function GET(request: NextRequest) {
   try {
+    const db = getDb()
     const searchParams = request.nextUrl.searchParams
     const month = searchParams.get('month')
     const year = searchParams.get('year')
 
-    let query = db.collection('expenses') as FirebaseFirestore.Query
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let query: any = db.collection('expenses')
 
     if (month && year) {
       const monthNum = parseInt(month)
@@ -24,7 +26,7 @@ export async function GET(request: NextRequest) {
     }
 
     const snapshot = await query.get()
-    const expenses = snapshot.docs.map((d) => ({
+    const expenses = snapshot.docs.map((d: any) => ({
       id: d.id,
       ...d.data(),
       date: d.data().date?.toDate?.()?.toISOString() ?? d.data().date,
@@ -40,6 +42,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    const db = getDb()
     const body = await request.json()
     const { amount, description, paidBy, category, date, splitType = 'shared', recordType = 'despesa' } = body
 
