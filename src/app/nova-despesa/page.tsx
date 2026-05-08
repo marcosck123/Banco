@@ -4,7 +4,17 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { CATEGORIES } from '@/lib/utils'
 
-export default function NovaDespesa() {
+type RecordType = 'despesa' | 'pagamento' | 'investimento'
+
+const INVESTMENT_CATEGORIES = ['Salário', 'Freelance', 'Aluguel recebido', 'Dividendos', 'Outros']
+
+const RECORD_TYPES: { value: RecordType; label: string; emoji: string; color: string; activeStyle: string }[] = [
+  { value: 'despesa',     label: 'Despesa',     emoji: '🔴', color: 'text-red-600',    activeStyle: 'border-red-400 bg-red-50 text-red-700' },
+  { value: 'pagamento',   label: 'Pagamento',   emoji: '🟠', color: 'text-orange-600', activeStyle: 'border-orange-400 bg-orange-50 text-orange-700' },
+  { value: 'investimento',label: 'Investimento',emoji: '🟢', color: 'text-emerald-600',activeStyle: 'border-emerald-500 bg-emerald-50 text-emerald-700' },
+]
+
+export default function NovaTransacao() {
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -12,6 +22,7 @@ export default function NovaDespesa() {
 
   const today = new Date().toISOString().split('T')[0]
 
+  const [recordType, setRecordType] = useState<RecordType>('despesa')
   const [form, setForm] = useState({
     amount: '',
     description: '',
@@ -21,17 +32,25 @@ export default function NovaDespesa() {
     splitType: 'shared',
   })
 
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
-  ) => {
+  const isInvestment = recordType === 'investimento'
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }))
     setError('')
   }
 
   const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Allow only numbers and comma/dot for decimals
     const value = e.target.value.replace(/[^\d.,]/g, '')
     setForm((prev) => ({ ...prev, amount: value }))
+    setError('')
+  }
+
+  const handleRecordTypeChange = (type: RecordType) => {
+    setRecordType(type)
+    setForm((prev) => ({
+      ...prev,
+      category: type === 'investimento' ? 'Salário' : 'Alimentação',
+    }))
     setError('')
   }
 
@@ -61,36 +80,42 @@ export default function NovaDespesa() {
           category: form.category,
           paidBy: form.paidBy,
           date: form.date,
-          splitType: form.splitType,
+          splitType: isInvestment ? 'shared' : form.splitType,
+          recordType,
         }),
+        signal: AbortSignal.timeout(12000),
       })
 
       if (!res.ok) {
         const data = await res.json()
-        setError(data.error || 'Erro ao salvar despesa.')
+        setError(data.error || 'Erro ao salvar.')
         return
       }
 
       setSuccess(true)
-      setTimeout(() => {
-        router.push('/')
-      }, 1200)
-    } catch (err) {
-      setError('Erro de conexão. Tente novamente.')
+      setTimeout(() => router.push('/'), 1200)
+    } catch (err: any) {
+      if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
+        setError('Conexão lenta. Tente novamente.')
+      } else {
+        setError('Erro de conexão. Tente novamente.')
+      }
     } finally {
       setLoading(false)
     }
   }
 
+  const currentType = RECORD_TYPES.find((t) => t.value === recordType)!
+
   if (success) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-4">
-        <div className="w-20 h-20 bg-emerald-100 rounded-full flex items-center justify-center">
-          <svg className="w-10 h-10 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
+        <div className={`w-20 h-20 rounded-full flex items-center justify-center ${isInvestment ? 'bg-emerald-100' : 'bg-red-50'}`}>
+          <span className="text-4xl">{isInvestment ? '💰' : '✅'}</span>
         </div>
-        <p className="text-xl font-bold text-emerald-800">Despesa adicionada!</p>
+        <p className="text-xl font-bold text-gray-800">
+          {isInvestment ? 'Investimento registrado!' : recordType === 'pagamento' ? 'Pagamento registrado!' : 'Despesa adicionada!'}
+        </p>
         <p className="text-gray-500 text-sm">Redirecionando...</p>
       </div>
     )
@@ -109,20 +134,38 @@ export default function NovaDespesa() {
           </svg>
         </button>
         <div>
-          <h1 className="text-2xl font-bold text-emerald-900">Nova Despesa</h1>
-          <p className="text-emerald-600 text-sm">Registre um gasto compartilhado</p>
+          <h1 className="text-2xl font-bold text-emerald-900">Nova Transação</h1>
+          <p className="text-emerald-600 text-sm">Escolha o tipo abaixo</p>
         </div>
       </div>
 
-      {/* Form */}
+      {/* Record type selector */}
+      <div className="grid grid-cols-3 gap-2">
+        {RECORD_TYPES.map((type) => (
+          <button
+            key={type.value}
+            type="button"
+            onClick={() => handleRecordTypeChange(type.value)}
+            className={`py-3 px-2 rounded-2xl font-semibold text-sm transition-all border-2 flex flex-col items-center gap-1 ${
+              recordType === type.value
+                ? type.activeStyle
+                : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'
+            }`}
+          >
+            <span className="text-2xl">{type.emoji}</span>
+            <span>{type.label}</span>
+          </button>
+        ))}
+      </div>
+
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Amount */}
         <div className="bg-white rounded-2xl p-5 shadow-sm border border-emerald-50">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Valor
-          </label>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Valor</label>
           <div className="flex items-center gap-2">
-            <span className="text-gray-500 font-medium text-lg">R$</span>
+            <span className={`font-bold text-lg ${isInvestment ? 'text-emerald-500' : 'text-red-400'}`}>
+              {isInvestment ? '+' : '-'} R$
+            </span>
             <input
               type="text"
               name="amount"
@@ -130,7 +173,9 @@ export default function NovaDespesa() {
               value={form.amount}
               onChange={handleAmountChange}
               placeholder="0,00"
-              className="flex-1 text-3xl font-bold text-emerald-700 border-none outline-none bg-transparent placeholder-gray-300"
+              className={`flex-1 text-3xl font-bold border-none outline-none bg-transparent placeholder-gray-300 ${
+                isInvestment ? 'text-emerald-600' : 'text-red-500'
+              }`}
               required
             />
           </div>
@@ -138,15 +183,13 @@ export default function NovaDespesa() {
 
         {/* Description */}
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-emerald-50">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Descrição
-          </label>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Descrição</label>
           <input
             type="text"
             name="description"
             value={form.description}
             onChange={handleChange}
-            placeholder="Ex: Jantar no restaurante"
+            placeholder={isInvestment ? 'Ex: Salário do mês' : 'Ex: Jantar no restaurante'}
             className="w-full border border-gray-200 rounded-xl px-4 py-3 text-gray-800 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:border-transparent"
             required
           />
@@ -154,27 +197,23 @@ export default function NovaDespesa() {
 
         {/* Category */}
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-emerald-50">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Categoria
-          </label>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Categoria</label>
           <select
             name="category"
             value={form.category}
             onChange={handleChange}
             className="w-full border border-gray-200 rounded-xl px-4 py-3 text-gray-800 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:border-transparent bg-white"
           >
-            {CATEGORIES.map((cat) => (
-              <option key={cat} value={cat}>
-                {cat}
-              </option>
+            {(isInvestment ? INVESTMENT_CATEGORIES : CATEGORIES).map((cat) => (
+              <option key={cat} value={cat}>{cat}</option>
             ))}
           </select>
         </div>
 
-        {/* Who paid */}
+        {/* Who (paidBy = who registered / deposited) */}
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-emerald-50">
           <label className="block text-sm font-medium text-gray-700 mb-3">
-            Quem pagou?
+            {isInvestment ? 'Quem depositou?' : 'Quem pagou?'}
           </label>
           <div className="grid grid-cols-2 gap-3">
             <button
@@ -202,60 +241,39 @@ export default function NovaDespesa() {
           </div>
         </div>
 
-        {/* Split type */}
-        <div className="bg-white rounded-2xl p-4 shadow-sm border border-emerald-50">
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Quem vai pagar essa conta?
-          </label>
-          <p className="text-xs text-gray-400 mb-3">Decida se é uma conta do casal ou individual</p>
-          <div className="grid grid-cols-3 gap-2">
-            <button
-              type="button"
-              onClick={() => setForm((prev) => ({ ...prev, splitType: 'shared' }))}
-              className={`py-3 px-2 rounded-xl font-semibold text-sm transition-all border-2 flex flex-col items-center gap-1 ${
-                form.splitType === 'shared'
-                  ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
-                  : 'border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300'
-              }`}
-            >
-              <span className="text-xl">👫</span>
-              <span>Casal</span>
-              <span className="text-xs font-normal opacity-70">50/50</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setForm((prev) => ({ ...prev, splitType: 'user1_only' }))}
-              className={`py-3 px-2 rounded-xl font-semibold text-sm transition-all border-2 flex flex-col items-center gap-1 ${
-                form.splitType === 'user1_only'
-                  ? 'border-blue-500 bg-blue-50 text-blue-700'
-                  : 'border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300'
-              }`}
-            >
-              <span className="text-xl">🧍</span>
-              <span>Só você</span>
-              <span className="text-xs font-normal opacity-70">ela não divide</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setForm((prev) => ({ ...prev, splitType: 'user2_only' }))}
-              className={`py-3 px-2 rounded-xl font-semibold text-sm transition-all border-2 flex flex-col items-center gap-1 ${
-                form.splitType === 'user2_only'
-                  ? 'border-purple-500 bg-purple-50 text-purple-700'
-                  : 'border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300'
-              }`}
-            >
-              <span className="text-xl">🧍‍♀️</span>
-              <span>Só ela</span>
-              <span className="text-xs font-normal opacity-70">você não divide</span>
-            </button>
+        {/* Split type — hidden for investments */}
+        {!isInvestment && (
+          <div className="bg-white rounded-2xl p-4 shadow-sm border border-emerald-50">
+            <label className="block text-sm font-medium text-gray-700 mb-1">Quem vai pagar essa conta?</label>
+            <p className="text-xs text-gray-400 mb-3">Decida se é uma conta do casal ou individual</p>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { value: 'shared',     emoji: '👫', label: 'Casal',    sub: '50/50',           active: 'border-emerald-500 bg-emerald-50 text-emerald-700' },
+                { value: 'user1_only', emoji: '🧍', label: 'Só você',  sub: 'ela não divide',  active: 'border-blue-500 bg-blue-50 text-blue-700' },
+                { value: 'user2_only', emoji: '🧍‍♀️', label: 'Só ela',   sub: 'você não divide', active: 'border-purple-500 bg-purple-50 text-purple-700' },
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setForm((prev) => ({ ...prev, splitType: opt.value }))}
+                  className={`py-3 px-2 rounded-xl font-semibold text-sm transition-all border-2 flex flex-col items-center gap-1 ${
+                    form.splitType === opt.value
+                      ? opt.active
+                      : 'border-gray-200 bg-gray-50 text-gray-500 hover:border-gray-300'
+                  }`}
+                >
+                  <span className="text-xl">{opt.emoji}</span>
+                  <span>{opt.label}</span>
+                  <span className="text-xs font-normal opacity-70">{opt.sub}</span>
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Date */}
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-emerald-50">
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            Data
-          </label>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Data</label>
           <input
             type="date"
             name="date"
@@ -266,18 +284,18 @@ export default function NovaDespesa() {
           />
         </div>
 
-        {/* Error */}
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
             {error}
           </div>
         )}
 
-        {/* Submit */}
         <button
           type="submit"
           disabled={loading}
-          className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold text-lg shadow-lg hover:bg-emerald-700 active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+          className={`w-full text-white py-4 rounded-2xl font-bold text-lg shadow-lg active:scale-95 transition-all disabled:opacity-60 disabled:cursor-not-allowed ${
+            isInvestment ? 'bg-emerald-600 hover:bg-emerald-700' : recordType === 'pagamento' ? 'bg-orange-500 hover:bg-orange-600' : 'bg-red-500 hover:bg-red-600'
+          }`}
         >
           {loading ? (
             <span className="flex items-center justify-center gap-2">
@@ -287,9 +305,7 @@ export default function NovaDespesa() {
               </svg>
               Salvando...
             </span>
-          ) : (
-            'Adicionar Despesa'
-          )}
+          ) : isInvestment ? '💰 Registrar Investimento' : recordType === 'pagamento' ? '🧾 Registrar Pagamento' : '➕ Adicionar Despesa'}
         </button>
       </form>
     </div>

@@ -8,11 +8,12 @@ interface Summary {
   month: number
   year: number
   totalSpent: number
+  totalInvested: number
   sharedTotal: number
   user1OnlyTotal: number
   user2OnlyTotal: number
-  user1Spent: number
-  user2Spent: number
+  user1Invested: number
+  user2Invested: number
   user1Due: number
   user2Due: number
   availableBalance: number
@@ -22,6 +23,7 @@ interface Summary {
   user1Name: string
   user2Name: string
   expenseCount: number
+  investmentCount: number
 }
 
 interface Expense {
@@ -32,6 +34,7 @@ interface Expense {
   category: string
   date: string
   splitType: string
+  recordType: string
   createdAt: string
 }
 
@@ -41,21 +44,22 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
 
   const fetchData = async () => {
+    const signal = AbortSignal.timeout(12000)
     try {
       const now = new Date()
       const month = now.getMonth() + 1
       const year = now.getFullYear()
 
       const [summaryRes, expensesRes] = await Promise.all([
-        fetch(`/api/summary?month=${month}&year=${year}`),
-        fetch(`/api/expenses?month=${month}&year=${year}`),
+        fetch(`/api/summary?month=${month}&year=${year}`, { signal }),
+        fetch(`/api/expenses?month=${month}&year=${year}`, { signal }),
       ])
 
       const summaryData = await summaryRes.json()
-      const expensesData = await expensesRes.json()
+      const expensesRaw = await expensesRes.json()
 
       setSummary(summaryData)
-      setRecentExpenses(expensesData.slice(0, 5))
+      setRecentExpenses(Array.isArray(expensesRaw) ? expensesRaw.slice(0, 5) : [])
     } catch (error) {
       console.error('Error fetching data:', error)
     } finally {
@@ -144,10 +148,17 @@ export default function Dashboard() {
             <p className="text-gray-400 text-xs mt-1">{summary.expenseCount} despesas</p>
           </div>
           <div className="bg-white rounded-2xl p-4 shadow-sm border border-emerald-50">
-            <p className="text-gray-500 text-xs font-medium">Total do casal</p>
-            <p className="text-xl font-bold text-emerald-700 mt-1">{formatCurrency(summary.sharedTotal)}</p>
-            <p className="text-gray-400 text-xs mt-1">despesas compartilhadas</p>
+            <p className="text-gray-500 text-xs font-medium">Saídas do mês</p>
+            <p className="text-xl font-bold text-red-500 mt-1">{formatCurrency(summary.totalSpent)}</p>
+            <p className="text-gray-400 text-xs mt-1">{summary.expenseCount} transações</p>
           </div>
+          {summary.totalInvested > 0 && (
+            <div className="bg-emerald-50 rounded-2xl p-4 shadow-sm border border-emerald-100">
+              <p className="text-gray-500 text-xs font-medium">Investimentos</p>
+              <p className="text-xl font-bold text-emerald-600 mt-1">+{formatCurrency(summary.totalInvested)}</p>
+              <p className="text-gray-400 text-xs mt-1">{summary.investmentCount} entradas</p>
+            </div>
+          )}
           <div className="bg-white rounded-2xl p-4 shadow-sm border border-emerald-50">
             <p className="text-gray-500 text-xs font-medium">{summary.user1Name} deve</p>
             <p className="text-xl font-bold text-blue-600 mt-1">{formatCurrency(summary.user1Due)}</p>
@@ -199,15 +210,23 @@ export default function Dashboard() {
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="font-semibold text-gray-800 text-sm">{formatCurrency(expense.amount)}</p>
+                  <p className={`font-semibold text-sm ${expense.recordType === 'investimento' ? 'text-emerald-600' : 'text-gray-800'}`}>
+                    {expense.recordType === 'investimento' ? '+' : '-'}{formatCurrency(expense.amount)}
+                  </p>
                   <p className={`text-xs ${expense.paidBy === 'user1' ? 'text-blue-500' : 'text-purple-500'}`}>
                     {expense.paidBy === 'user1' ? summary?.user1Name : summary?.user2Name}
                   </p>
-                  {expense.splitType !== 'shared' && (
+                  {expense.recordType === 'investimento' ? (
+                    <span className="text-xs px-1.5 py-0.5 rounded-full font-medium bg-emerald-100 text-emerald-600">
+                      Investimento
+                    </span>
+                  ) : expense.recordType === 'pagamento' ? (
+                    <span className="text-xs px-1.5 py-0.5 rounded-full font-medium bg-orange-100 text-orange-600">
+                      Pagamento
+                    </span>
+                  ) : expense.splitType !== 'shared' && (
                     <span className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${
-                      expense.splitType === 'user1_only'
-                        ? 'bg-blue-100 text-blue-600'
-                        : 'bg-purple-100 text-purple-600'
+                      expense.splitType === 'user1_only' ? 'bg-blue-100 text-blue-600' : 'bg-purple-100 text-purple-600'
                     }`}>
                       {expense.splitType === 'user1_only' ? 'Só você' : 'Só ela'}
                     </span>

@@ -11,6 +11,7 @@ interface Expense {
   category: string
   date: string
   splitType: string
+  recordType: string
   createdAt: string
 }
 
@@ -18,6 +19,12 @@ const SPLIT_BADGE: Record<string, { label: string; color: string }> = {
   shared: { label: '👫 Casal', color: 'text-emerald-600 bg-emerald-50' },
   user1_only: { label: '🧍 Só você', color: 'text-blue-600 bg-blue-50' },
   user2_only: { label: '🧍‍♀️ Só ela', color: 'text-purple-600 bg-purple-50' },
+}
+
+const RECORD_BADGE: Record<string, { label: string; color: string }> = {
+  despesa:      { label: '🔴 Despesa',      color: 'text-red-600 bg-red-50' },
+  pagamento:    { label: '🟠 Pagamento',    color: 'text-orange-600 bg-orange-50' },
+  investimento: { label: '🟢 Investimento', color: 'text-emerald-600 bg-emerald-50' },
 }
 
 interface Summary {
@@ -38,14 +45,15 @@ export default function Historico() {
 
   const fetchExpenses = async () => {
     setLoading(true)
+    const signal = AbortSignal.timeout(12000)
     try {
       const [expRes, sumRes] = await Promise.all([
-        fetch(`/api/expenses?month=${month}&year=${year}`),
-        fetch(`/api/summary?month=${month}&year=${year}`),
+        fetch(`/api/expenses?month=${month}&year=${year}`, { signal }),
+        fetch(`/api/summary?month=${month}&year=${year}`, { signal }),
       ])
-      const expData = await expRes.json()
+      const expRaw = await expRes.json()
       const sumData = await sumRes.json()
-      setExpenses(expData)
+      setExpenses(Array.isArray(expRaw) ? expRaw : [])
       setSummary(sumData)
     } catch (err) {
       console.error(err)
@@ -190,27 +198,31 @@ export default function Historico() {
                           {expense.description}
                         </p>
                         <p className="text-gray-400 text-xs">{expense.category}</p>
-                        {(() => {
-                          const badge = SPLIT_BADGE[expense.splitType] ?? SPLIT_BADGE.shared
-                          return (
-                            <span className={`inline-block text-xs px-1.5 py-0.5 rounded-full font-medium mt-0.5 ${badge.color}`}>
-                              {badge.label}
-                            </span>
-                          )
-                        })()}
+                        <div className="flex gap-1 flex-wrap mt-0.5">
+                          {(() => {
+                            const rb = RECORD_BADGE[expense.recordType] ?? RECORD_BADGE.despesa
+                            return (
+                              <span className={`inline-block text-xs px-1.5 py-0.5 rounded-full font-medium ${rb.color}`}>
+                                {rb.label}
+                              </span>
+                            )
+                          })()}
+                          {expense.recordType !== 'investimento' && expense.splitType !== 'shared' && (() => {
+                            const sb = SPLIT_BADGE[expense.splitType]
+                            return sb ? (
+                              <span className={`inline-block text-xs px-1.5 py-0.5 rounded-full font-medium ${sb.color}`}>
+                                {sb.label}
+                              </span>
+                            ) : null
+                          })()}
+                        </div>
                       </div>
                       <div className="text-right flex-shrink-0">
-                        <p className="font-semibold text-gray-800 text-sm">
-                          {formatCurrency(expense.amount)}
+                        <p className={`font-semibold text-sm ${expense.recordType === 'investimento' ? 'text-emerald-600' : 'text-gray-800'}`}>
+                          {expense.recordType === 'investimento' ? '+' : '-'}{formatCurrency(expense.amount)}
                         </p>
-                        <p
-                          className={`text-xs ${
-                            expense.paidBy === 'user1' ? 'text-blue-500' : 'text-purple-500'
-                          }`}
-                        >
-                          {expense.paidBy === 'user1'
-                            ? summary?.user1Name || 'Você'
-                            : summary?.user2Name || 'Namorada'}
+                        <p className={`text-xs ${expense.paidBy === 'user1' ? 'text-blue-500' : 'text-purple-500'}`}>
+                          {expense.paidBy === 'user1' ? summary?.user1Name || 'Você' : summary?.user2Name || 'Namorada'}
                         </p>
                       </div>
                       <button
