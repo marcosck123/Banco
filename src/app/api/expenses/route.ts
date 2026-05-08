@@ -1,13 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import {
-  collection,
-  addDoc,
-  getDocs,
-  query,
-  where,
-  orderBy,
-  Timestamp,
-} from 'firebase/firestore'
+import { Timestamp } from 'firebase-admin/firestore'
 import { db } from '@/lib/firebase'
 
 export async function GET(request: NextRequest) {
@@ -16,30 +8,27 @@ export async function GET(request: NextRequest) {
     const month = searchParams.get('month')
     const year = searchParams.get('year')
 
-    const expensesRef = collection(db, 'expenses')
-    let q
+    let query = db.collection('expenses') as FirebaseFirestore.Query
 
     if (month && year) {
       const monthNum = parseInt(month)
       const yearNum = parseInt(year)
       const startDate = Timestamp.fromDate(new Date(yearNum, monthNum - 1, 1))
       const endDate = Timestamp.fromDate(new Date(yearNum, monthNum, 0, 23, 59, 59, 999))
-      q = query(
-        expensesRef,
-        where('date', '>=', startDate),
-        where('date', '<=', endDate),
-        orderBy('date', 'desc')
-      )
+      query = query
+        .where('date', '>=', startDate)
+        .where('date', '<=', endDate)
+        .orderBy('date', 'desc')
     } else {
-      q = query(expensesRef, orderBy('date', 'desc'))
+      query = query.orderBy('date', 'desc')
     }
 
-    const snapshot = await getDocs(q)
-    const expenses = snapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-      date: doc.data().date?.toDate?.()?.toISOString() ?? doc.data().date,
-      createdAt: doc.data().createdAt?.toDate?.()?.toISOString() ?? doc.data().createdAt,
+    const snapshot = await query.get()
+    const expenses = snapshot.docs.map((d) => ({
+      id: d.id,
+      ...d.data(),
+      date: d.data().date?.toDate?.()?.toISOString() ?? d.data().date,
+      createdAt: d.data().createdAt?.toDate?.()?.toISOString() ?? d.data().createdAt,
     }))
 
     return NextResponse.json(expenses)
@@ -52,7 +41,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { amount, description, paidBy, category, date, splitType = 'shared' } = body
+    const { amount, description, paidBy, category, date, splitType = 'shared', recordType = 'despesa' } = body
 
     if (!amount || !description || !paidBy || !category || !date) {
       return NextResponse.json({ error: 'Todos os campos são obrigatórios' }, { status: 400 })
@@ -66,13 +55,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Tipo de divisão inválido' }, { status: 400 })
     }
 
-    const docRef = await addDoc(collection(db, 'expenses'), {
+    if (!['despesa', 'pagamento', 'investimento'].includes(recordType)) {
+      return NextResponse.json({ error: 'Tipo de registro inválido' }, { status: 400 })
+    }
+
+    const docRef = await db.collection('expenses').add({
       amount: parseFloat(amount),
       description,
       paidBy,
       category,
       date: Timestamp.fromDate(new Date(date)),
       splitType,
+      recordType,
+      paid: false,
       createdAt: Timestamp.now(),
     })
 

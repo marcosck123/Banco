@@ -1,23 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import {
-  collection,
-  addDoc,
-  getDocs,
-  query,
-  where,
-  orderBy,
-  Timestamp,
-} from 'firebase/firestore'
+import { Timestamp } from 'firebase-admin/firestore'
 import { db } from '@/lib/firebase'
 
 export async function GET() {
   try {
-    const q = query(
-      collection(db, 'payments'),
-      orderBy('year', 'desc'),
-      orderBy('month', 'desc')
-    )
-    const snapshot = await getDocs(q)
+    const snapshot = await db.collection('payments').orderBy('paidAt', 'desc').get()
     const payments = snapshot.docs.map((d) => ({
       id: d.id,
       ...d.data(),
@@ -33,64 +20,62 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { month, year } = body
+    const { expenseIds, month, year } = body
 
+    if (!expenseIds || !Array.isArray(expenseIds) || expenseIds.length === 0) {
+      return NextResponse.json({ error: 'Selecione ao menos uma despesa' }, { status: 400 })
+    }
     if (!month || !year) {
       return NextResponse.json({ error: 'Mês e ano são obrigatórios' }, { status: 400 })
     }
 
-    const monthNum = parseInt(month)
-    const yearNum = parseInt(year)
-
-    // Check if already paid
-    const existing = await getDocs(
-      query(
-        collection(db, 'payments'),
-        where('month', '==', monthNum),
-        where('year', '==', yearNum)
-      )
+    const expenseDocs = await Promise.all(
+      expenseIds.map((id: string) => db.collection('expenses').doc(id).get())
     )
-    if (!existing.empty) {
-      return NextResponse.json({ error: 'Este mês já foi pago' }, { status: 409 })
+
+    const expenses = expenseDocs
+      .filter((d) => d.exists)
+      .map((d) => ({ id: d.id, ...d.data() } as any))
+
+    if (expenses.length === 0) {
+      return NextResponse.json({ error: 'Despesas não encontradas' }, { status: 404 })
     }
 
-    // Get all expenses for the month
-    const startDate = Timestamp.fromDate(new Date(yearNum, monthNum - 1, 1))
-    const endDate = Timestamp.fromDate(new Date(yearNum, monthNum, 0, 23, 59, 59, 999))
-
-    const expSnap = await getDocs(
-      query(
-        collection(db, 'expenses'),
-        where('date', '>=', startDate),
-        where('date', '<=', endDate)
-      )
-    )
-
-    const expenses = expSnap.docs.map((d) => d.data())
-    const totalAmount = expenses.reduce((sum, e) => sum + e.amount, 0)
+    const totalAmount = expenses.reduce((sum: number, e: any) => sum + e.amount, 0)
 
     const sharedTotal = expenses
-      .filter((e) => e.splitType === 'shared' || !e.splitType)
-      .reduce((sum, e) => sum + e.amount, 0)
+      .filter((e: any) => e.splitType === 'shared' || !e.splitType)
+      .reduce((sum: number, e: any) => sum + e.amount, 0)
 
     const user1OnlyTotal = expenses
-      .filter((e) => e.splitType === 'user1_only')
-      .reduce((sum, e) => sum + e.amount, 0)
+      .filter((e: any) => e.splitType === 'user1_only')
+      .reduce((sum: number, e: any) => sum + e.amount, 0)
 
     const user2OnlyTotal = expenses
-      .filter((e) => e.splitType === 'user2_only')
-      .reduce((sum, e) => sum + e.amount, 0)
+      .filter((e: any) => e.splitType === 'user2_only')
+      .reduce((sum: number, e: any) => sum + e.amount, 0)
 
-    const docRef = await addDoc(collection(db, 'payments'), {
+    const batch = db.batch()
+
+    const paymentRef = db.collection('payments').doc()
+    batch.set(paymentRef, {
       amount: totalAmount,
       user1Amount: sharedTotal / 2 + user1OnlyTotal,
       user2Amount: sharedTotal / 2 + user2OnlyTotal,
-      month: monthNum,
-      year: yearNum,
+      month: parseInt(month),
+      year: parseInt(year),
+      expenseCount: expenses.length,
+      expenseIds,
       paidAt: Timestamp.now(),
     })
 
-    return NextResponse.json({ id: docRef.id }, { status: 201 })
+    for (const id of expenseIds) {
+      batch.update(db.collection('expenses').doc(id), { paid: true })
+    }
+
+    await batch.commit()
+
+    return NextResponse.json({ id: paymentRef.id }, { status: 201 })
   } catch (error) {
     console.error('Error creating payment:', error)
     return NextResponse.json({ error: 'Erro ao registrar pagamento' }, { status: 500 })
