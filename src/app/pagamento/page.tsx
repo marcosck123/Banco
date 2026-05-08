@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { formatCurrency, formatDate, getMonthName, CATEGORY_ICONS } from '@/lib/utils'
+import { formatCurrency, getMonthName, CATEGORY_ICONS } from '@/lib/utils'
 
 interface Expense {
   id: string
@@ -22,40 +22,42 @@ interface Payment {
   user2Amount: number
   month: number
   year: number
-  paidAt: string
   expenseCount: number
+  paidAt: string
 }
 
-interface Names {
+interface Summary {
+  month: number
+  year: number
   user1Name: string
   user2Name: string
 }
 
 function calcSplit(expenses: Expense[]) {
-  const sharedTotal = expenses
+  const shared = expenses
     .filter((e) => e.splitType === 'shared' || !e.splitType)
-    .reduce((sum, e) => sum + e.amount, 0)
+    .reduce((s, e) => s + e.amount, 0)
   const user1Only = expenses
     .filter((e) => e.splitType === 'user1_only')
-    .reduce((sum, e) => sum + e.amount, 0)
+    .reduce((s, e) => s + e.amount, 0)
   const user2Only = expenses
     .filter((e) => e.splitType === 'user2_only')
-    .reduce((sum, e) => sum + e.amount, 0)
+    .reduce((s, e) => s + e.amount, 0)
   return {
-    total: expenses.reduce((sum, e) => sum + e.amount, 0),
-    user1Due: sharedTotal / 2 + user1Only,
-    user2Due: sharedTotal / 2 + user2Only,
-    sharedTotal,
+    total: shared + user1Only + user2Only,
+    user1Due: shared / 2 + user1Only,
+    user2Due: shared / 2 + user2Only,
   }
 }
 
 export default function Pagamento() {
   const now = new Date()
-  const [month, setMonth] = useState(now.getMonth() + 1)
-  const [year, setYear] = useState(now.getFullYear())
+  const month = now.getMonth() + 1
+  const year = now.getFullYear()
+
+  const [summary, setSummary] = useState<Summary | null>(null)
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [payments, setPayments] = useState<Payment[]>([])
-  const [names, setNames] = useState<Names>({ user1Name: 'Você', user2Name: 'Namorada' })
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [paying, setPaying] = useState(false)
@@ -64,66 +66,68 @@ export default function Pagamento() {
 
   const fetchData = async () => {
     setLoading(true)
+    setError('')
     const signal = AbortSignal.timeout(12000)
     try {
-      const [expRes, payRes, sumRes] = await Promise.all([
+      const [sumRes, expRes, payRes] = await Promise.all([
+        fetch(`/api/summary?month=${month}&year=${year}`, { signal }),
         fetch(`/api/expenses?month=${month}&year=${year}`, { signal }),
         fetch('/api/payments', { signal }),
-        fetch(`/api/summary?month=${month}&year=${year}`, { signal }),
       ])
-
-      const [expRaw, payRaw, sumData] = await Promise.all([
-        expRes.json(),
-        payRes.json(),
-        sumRes.json(),
-      ])
-
-      const expData: Expense[] = Array.isArray(expRaw) ? expRaw : []
-      const payData: Payment[] = Array.isArray(payRaw) ? payRaw : []
-
-      const outflows = expData.filter((e) => e.recordType !== 'investimento' && !e.paid)
-      setExpenses(outflows)
-      setPayments(payData)
-      setNames({ user1Name: sumData.user1Name ?? 'Você', user2Name: sumData.user2Name ?? 'Namorada' })
-      setSelected(new Set(outflows.map((e) => e.id)))
+      const sumData = await sumRes.json()
+      const expData = await expRes.json()
+      const payData = await payRes.json()
+      setSummary(sumData)
+      const allExpenses: Expense[] = Array.isArray(expData) ? expData : []
+      const unpaid = allExpenses.filter(
+        (e) => !e.paid && e.recordType !== 'investimento'
+      )
+      setExpenses(unpaid)
+      setSelected(new Set(unpaid.map((e) => e.id)))
+      setPayments(Array.isArray(payData) ? payData : [])
     } catch (err: any) {
-      console.error(err)
       if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
-        setError('Conexão lenta. Verifique sua internet e tente novamente.')
+        setError('Conexão lenta. Tente novamente.')
+      } else {
+        setError('Erro ao carregar dados.')
       }
     } finally {
       setLoading(false)
     }
   }
 
-  useEffect(() => { fetchData() }, [month, year])
+  useEffect(() => {
+    fetchData()
+  }, [])
 
   const toggleExpense = (id: string) => {
     setSelected((prev) => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
       return next
     })
   }
 
   const toggleAll = () => {
-    if (selected.size === expenses.length) setSelected(new Set())
-    else setSelected(new Set(expenses.map((e) => e.id)))
+    if (selected.size === expenses.length) {
+      setSelected(new Set())
+    } else {
+      setSelected(new Set(expenses.map((e) => e.id)))
+    }
   }
-
-  const selectedExpenses = expenses.filter((e) => selected.has(e.id))
-  const { total, user1Due, user2Due, sharedTotal } = calcSplit(selectedExpenses)
 
   const handlePay = async () => {
     if (selected.size === 0) return
     setPaying(true)
     setError('')
+    const signal = AbortSignal.timeout(12000)
     try {
       const res = await fetch('/api/payments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ expenseIds: Array.from(selected), month, year }),
-        signal: AbortSignal.timeout(12000),
+        signal,
       })
       const data = await res.json()
       if (!res.ok) {
@@ -134,7 +138,7 @@ export default function Pagamento() {
       await fetchData()
     } catch (err: any) {
       if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
-        setError('Conexão lenta. O pagamento pode ter sido processado — recarregue a página.')
+        setError('Conexão lenta. Tente novamente.')
       } else {
         setError('Erro de conexão. Tente novamente.')
       }
@@ -143,25 +147,20 @@ export default function Pagamento() {
     }
   }
 
-  const formatDateTime = (dateStr: string) =>
-    new Intl.DateTimeFormat('pt-BR', {
+  const formatDateTime = (dateStr: string) => {
+    return new Intl.DateTimeFormat('pt-BR', {
       day: '2-digit', month: '2-digit', year: 'numeric',
       hour: '2-digit', minute: '2-digit',
     }).format(new Date(dateStr))
+  }
 
-  const prevMonth = () => {
-    if (month === 1) { setMonth(12); setYear((y) => y - 1) }
-    else setMonth((m) => m - 1)
-  }
-  const nextMonth = () => {
-    if (month === 12) { setMonth(1); setYear((y) => y + 1) }
-    else setMonth((m) => m + 1)
-  }
+  const selectedExpenses = expenses.filter((e) => selected.has(e.id))
+  const split = calcSplit(selectedExpenses)
 
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-emerald-600" />
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-emerald-600"></div>
       </div>
     )
   }
@@ -169,125 +168,11 @@ export default function Pagamento() {
   return (
     <div className="py-6 space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-emerald-900">Pagar Fatura</h1>
-        <p className="text-emerald-600 text-sm">Selecione as despesas para pagar</p>
+        <h1 className="text-2xl font-bold text-emerald-900">Pagamento</h1>
+        <p className="text-emerald-600 text-sm">
+          {getMonthName(month)} {year}
+        </p>
       </div>
-
-      {/* Month navigator */}
-      <div className="bg-white rounded-2xl p-4 shadow-sm border border-emerald-50 flex items-center justify-between">
-        <button onClick={prevMonth} className="w-10 h-10 flex items-center justify-center rounded-xl hover:bg-gray-100 transition-colors">
-          <svg className="w-5 h-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-        </button>
-        <p className="font-bold text-gray-800">{getMonthName(month)} {year}</p>
-        <button onClick={nextMonth} className="w-10 h-10 flex items-center justify-center rounded-xl hover:bg-gray-100 transition-colors">
-          <svg className="w-5 h-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
-      </div>
-
-      {/* Expense selection list */}
-      {expenses.length === 0 ? (
-        <div className="bg-white rounded-2xl py-12 text-center shadow-sm border border-emerald-50">
-          <p className="text-4xl mb-3">✅</p>
-          <p className="text-gray-700 font-semibold">Tudo pago!</p>
-          <p className="text-gray-400 text-sm mt-1">Nenhuma despesa pendente em {getMonthName(month)}</p>
-        </div>
-      ) : (
-        <div className="bg-white rounded-2xl shadow-sm border border-emerald-50 overflow-hidden">
-          {/* Select all header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-            <button onClick={toggleAll} className="text-sm font-medium text-emerald-600 hover:text-emerald-700">
-              {selected.size === expenses.length ? 'Desmarcar todos' : 'Selecionar todos'}
-            </button>
-            <span className="text-xs text-gray-400">{selected.size}/{expenses.length} selecionados</span>
-          </div>
-
-          <ul className="divide-y divide-gray-50">
-            {expenses.map((expense) => {
-              const isSelected = selected.has(expense.id)
-              return (
-                <li
-                  key={expense.id}
-                  onClick={() => toggleExpense(expense.id)}
-                  className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors ${isSelected ? 'bg-emerald-50/50' : 'hover:bg-gray-50'}`}
-                >
-                  {/* Checkbox */}
-                  <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all ${
-                    isSelected ? 'border-emerald-500 bg-emerald-500' : 'border-gray-300'
-                  }`}>
-                    {isSelected && (
-                      <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                    )}
-                  </div>
-
-                  <div className="text-xl w-8 text-center flex-shrink-0">
-                    {CATEGORY_ICONS[expense.category] || '📦'}
-                  </div>
-
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-gray-800 text-sm truncate">{expense.description}</p>
-                    <p className="text-gray-400 text-xs">
-                      {expense.category} · {formatDate(expense.date)}
-                      {expense.recordType === 'pagamento' && <span className="ml-1 text-orange-500">· Pagamento</span>}
-                    </p>
-                  </div>
-
-                  <div className="text-right flex-shrink-0">
-                    <p className="font-semibold text-gray-800 text-sm">{formatCurrency(expense.amount)}</p>
-                    <p className={`text-xs ${expense.splitType === 'user1_only' ? 'text-blue-500' : expense.splitType === 'user2_only' ? 'text-purple-500' : 'text-gray-400'}`}>
-                      {expense.splitType === 'user1_only' ? 'Só você' : expense.splitType === 'user2_only' ? 'Só ela' : '50/50'}
-                    </p>
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
-        </div>
-      )}
-
-      {/* Running total + pay button */}
-      {expenses.length > 0 && (
-        <div className="bg-gradient-to-br from-emerald-600 to-emerald-800 rounded-2xl p-5 text-white shadow-lg">
-          <div className="flex justify-between items-center mb-3">
-            <p className="text-emerald-100 text-sm">Total selecionado</p>
-            <p className="text-2xl font-bold">{formatCurrency(total)}</p>
-          </div>
-
-          {total > 0 && (
-            <div className="bg-white/10 rounded-xl p-3 mb-4">
-              <div className="flex justify-around">
-                <div className="text-center">
-                  <p className="text-white/70 text-xs">{names.user1Name}</p>
-                  <p className="font-bold text-white">{formatCurrency(user1Due)}</p>
-                </div>
-                <div className="w-px bg-white/20" />
-                <div className="text-center">
-                  <p className="text-white/70 text-xs">{names.user2Name}</p>
-                  <p className="font-bold text-white">{formatCurrency(user2Due)}</p>
-                </div>
-              </div>
-              {sharedTotal > 0 && (
-                <p className="text-center text-white/40 text-xs mt-2">
-                  {formatCurrency(sharedTotal)} compartilhado · {formatCurrency(sharedTotal / 2)} cada
-                </p>
-              )}
-            </div>
-          )}
-
-          <button
-            onClick={() => setConfirmOpen(true)}
-            disabled={selected.size === 0}
-            className="w-full bg-white text-emerald-700 font-bold py-3 rounded-xl hover:bg-emerald-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            💳 Pagar {selected.size} {selected.size === 1 ? 'despesa' : 'despesas'}
-          </button>
-        </div>
-      )}
 
       {error && (
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
@@ -295,13 +180,96 @@ export default function Pagamento() {
         </div>
       )}
 
+      {/* Unpaid expenses list */}
+      {expenses.length === 0 ? (
+        <div className="bg-white rounded-2xl py-16 text-center shadow-sm border border-emerald-50">
+          <p className="text-4xl mb-3">✅</p>
+          <p className="text-gray-500 font-medium">Nenhuma despesa pendente</p>
+          <p className="text-gray-400 text-sm mt-1">em {getMonthName(month)} {year}</p>
+        </div>
+      ) : (
+        <>
+          {/* Select all toggle */}
+          <div className="bg-white rounded-2xl px-4 py-3 shadow-sm border border-emerald-50 flex items-center justify-between">
+            <span className="text-sm font-medium text-gray-700">
+              {selected.size} de {expenses.length} selecionadas
+            </span>
+            <button
+              onClick={toggleAll}
+              className="text-sm font-semibold text-emerald-600 hover:text-emerald-700"
+            >
+              {selected.size === expenses.length ? 'Desmarcar todas' : 'Marcar todas'}
+            </button>
+          </div>
+
+          {/* Expense checkboxes */}
+          <div className="bg-white rounded-2xl shadow-sm border border-emerald-50 overflow-hidden">
+            <ul className="divide-y divide-gray-50">
+              {expenses.map((expense) => (
+                <li
+                  key={expense.id}
+                  onClick={() => toggleExpense(expense.id)}
+                  className="flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-gray-50 transition-colors"
+                >
+                  <div className={`w-5 h-5 rounded flex items-center justify-center border-2 flex-shrink-0 transition-colors ${
+                    selected.has(expense.id)
+                      ? 'bg-emerald-500 border-emerald-500'
+                      : 'border-gray-300'
+                  }`}>
+                    {selected.has(expense.id) && (
+                      <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                  </div>
+                  <div className="text-xl w-8 text-center flex-shrink-0">
+                    {CATEGORY_ICONS[expense.category] || '📦'}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-gray-800 text-sm truncate">{expense.description}</p>
+                    <p className="text-gray-400 text-xs">
+                      {expense.category}
+                      {expense.splitType === 'user1_only' && ' · Só você'}
+                      {expense.splitType === 'user2_only' && ` · Só ${summary?.user2Name || 'ela'}`}
+                    </p>
+                  </div>
+                  <p className="font-semibold text-sm text-gray-800 flex-shrink-0">
+                    {formatCurrency(expense.amount)}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Running total */}
+          <div className="bg-emerald-600 rounded-2xl p-4 text-white">
+            <div className="flex justify-between items-center">
+              <span className="font-medium">Total selecionado</span>
+              <span className="text-xl font-bold">{formatCurrency(split.total)}</span>
+            </div>
+            <div className="flex justify-between items-center mt-2 text-emerald-100 text-sm">
+              <span>{summary?.user1Name || 'Você'}: {formatCurrency(split.user1Due)}</span>
+              <span>{summary?.user2Name || 'Namorada'}: {formatCurrency(split.user2Due)}</span>
+            </div>
+          </div>
+
+          <button
+            onClick={() => setConfirmOpen(true)}
+            disabled={selected.size === 0}
+            className="w-full bg-emerald-600 text-white py-4 rounded-2xl font-bold text-lg shadow-lg hover:bg-emerald-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            💳 Pagar {selected.size} despesa{selected.size !== 1 ? 's' : ''}
+          </button>
+        </>
+      )}
+
       {/* Past payments */}
       <div>
-        <h2 className="font-bold text-gray-800 mb-3">Pagamentos realizados</h2>
+        <h2 className="font-bold text-gray-800 mb-3">Faturas anteriores</h2>
         {payments.length === 0 ? (
           <div className="bg-white rounded-2xl py-10 text-center shadow-sm border border-emerald-50">
             <p className="text-3xl mb-2">📅</p>
-            <p className="text-gray-500 text-sm">Nenhum pagamento ainda</p>
+            <p className="text-gray-500 text-sm">Nenhuma fatura paga ainda</p>
           </div>
         ) : (
           <div className="bg-white rounded-2xl shadow-sm border border-emerald-50 overflow-hidden">
@@ -316,10 +284,11 @@ export default function Pagamento() {
                   <div className="flex-1">
                     <p className="font-medium text-gray-800 text-sm">
                       {getMonthName(payment.month)} {payment.year}
+                      {payment.expenseCount && (
+                        <span className="text-gray-400 font-normal"> · {payment.expenseCount} despesas</span>
+                      )}
                     </p>
-                    <p className="text-gray-400 text-xs">
-                      {payment.expenseCount} {payment.expenseCount === 1 ? 'despesa' : 'despesas'} · {formatDateTime(payment.paidAt)}
-                    </p>
+                    <p className="text-gray-400 text-xs">{formatDateTime(payment.paidAt)}</p>
                   </div>
                   <div className="text-right">
                     <p className="font-semibold text-gray-800 text-sm">{formatCurrency(payment.amount)}</p>
@@ -338,8 +307,8 @@ export default function Pagamento() {
         )}
       </div>
 
-      {/* Confirmation modal */}
-      {confirmOpen && (
+      {/* Confirmation Modal */}
+      {confirmOpen && summary && (
         <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50 p-4">
           <div className="bg-white rounded-3xl w-full max-w-md p-6 space-y-4 shadow-2xl">
             <div className="text-center">
@@ -348,23 +317,23 @@ export default function Pagamento() {
               </div>
               <h3 className="text-xl font-bold text-gray-800">Confirmar pagamento?</h3>
               <p className="text-gray-500 text-sm mt-1">
-                {selected.size} {selected.size === 1 ? 'despesa' : 'despesas'} de {getMonthName(month)} {year}
+                {selected.size} despesa{selected.size !== 1 ? 's' : ''} de {getMonthName(month)} {year}
               </p>
             </div>
 
             <div className="bg-emerald-50 rounded-2xl p-4 space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-600">Total</span>
-                <span className="font-bold text-gray-800">{formatCurrency(total)}</span>
+                <span className="font-bold text-gray-800">{formatCurrency(split.total)}</span>
               </div>
               <div className="border-t border-emerald-100 pt-2 space-y-1">
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">{names.user1Name} paga</span>
-                  <span className="font-semibold text-blue-600">{formatCurrency(user1Due)}</span>
+                  <span className="text-gray-600">{summary.user1Name} deve</span>
+                  <span className="font-semibold text-blue-600">{formatCurrency(split.user1Due)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">{names.user2Name} paga</span>
-                  <span className="font-semibold text-purple-600">{formatCurrency(user2Due)}</span>
+                  <span className="text-gray-600">{summary.user2Name} deve</span>
+                  <span className="font-semibold text-purple-600">{formatCurrency(split.user2Due)}</span>
                 </div>
               </div>
             </div>

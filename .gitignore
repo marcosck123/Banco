@@ -7,3 +7,4 @@ package-lock.json
 tsconfig.seed.json
 .env.local
 .env*.local
+*.tsbuildinfo

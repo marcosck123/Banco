@@ -1,15 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import {
-  collection,
-  getDocs,
-  query,
-  where,
-  doc,
-  getDoc,
-  setDoc,
-  Timestamp,
-} from 'firebase/firestore'
-import { db } from '@/lib/firebase'
+import { Timestamp } from 'firebase-admin/firestore'
+import { getDb } from '@/lib/firebase'
 
 const DEFAULT_SETTINGS = {
   creditLimit: 65000,
@@ -18,10 +9,11 @@ const DEFAULT_SETTINGS = {
 }
 
 async function getSettings() {
-  const settingsRef = doc(db, 'settings', 'default')
-  const snap = await getDoc(settingsRef)
-  if (!snap.exists()) {
-    await setDoc(settingsRef, DEFAULT_SETTINGS)
+  const db = getDb()
+  const settingsRef = db.collection('settings').doc('default')
+  const snap = await settingsRef.get()
+  if (!snap.exists) {
+    await settingsRef.set(DEFAULT_SETTINGS)
     return DEFAULT_SETTINGS
   }
   return snap.data() as typeof DEFAULT_SETTINGS
@@ -29,6 +21,7 @@ async function getSettings() {
 
 export async function GET(request: NextRequest) {
   try {
+    const db = getDb()
     const searchParams = request.nextUrl.searchParams
     const monthParam = searchParams.get('month')
     const yearParam = searchParams.get('year')
@@ -42,13 +35,10 @@ export async function GET(request: NextRequest) {
 
     const [settings, expSnap] = await Promise.all([
       getSettings(),
-      getDocs(
-        query(
-          collection(db, 'expenses'),
-          where('date', '>=', startDate),
-          where('date', '<=', endDate)
-        )
-      ),
+      db.collection('expenses')
+        .where('date', '>=', startDate)
+        .where('date', '<=', endDate)
+        .get(),
     ])
 
     const expenses = expSnap.docs.map((d) => d.data())

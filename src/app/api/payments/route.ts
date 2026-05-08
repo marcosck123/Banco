@@ -1,24 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import {
-  collection,
-  addDoc,
-  getDocs,
-  query,
-  orderBy,
-  doc,
-  getDoc,
-  writeBatch,
-  Timestamp,
-} from 'firebase/firestore'
-import { db } from '@/lib/firebase'
+import { Timestamp } from 'firebase-admin/firestore'
+import { getDb } from '@/lib/firebase'
 
 export async function GET() {
   try {
-    const q = query(
-      collection(db, 'payments'),
-      orderBy('paidAt', 'desc')
-    )
-    const snapshot = await getDocs(q)
+    const db = getDb()
+    const snapshot = await db.collection('payments').orderBy('paidAt', 'desc').get()
     const payments = snapshot.docs.map((d) => ({
       id: d.id,
       ...d.data(),
@@ -33,6 +20,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const db = getDb()
     const body = await request.json()
     const { expenseIds, month, year } = body
 
@@ -43,13 +31,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Mês e ano são obrigatórios' }, { status: 400 })
     }
 
-    // Fetch selected expenses to calculate amounts
     const expenseDocs = await Promise.all(
-      expenseIds.map((id: string) => getDoc(doc(db, 'expenses', id)))
+      expenseIds.map((id: string) => db.collection('expenses').doc(id).get())
     )
 
     const expenses = expenseDocs
-      .filter((d) => d.exists())
+      .filter((d) => d.exists)
       .map((d) => ({ id: d.id, ...d.data() } as any))
 
     if (expenses.length === 0) {
@@ -70,10 +57,9 @@ export async function POST(request: NextRequest) {
       .filter((e: any) => e.splitType === 'user2_only')
       .reduce((sum: number, e: any) => sum + e.amount, 0)
 
-    // Use a batch to atomically create payment + mark expenses as paid
-    const batch = writeBatch(db)
+    const batch = db.batch()
 
-    const paymentRef = doc(collection(db, 'payments'))
+    const paymentRef = db.collection('payments').doc()
     batch.set(paymentRef, {
       amount: totalAmount,
       user1Amount: sharedTotal / 2 + user1OnlyTotal,
@@ -86,7 +72,7 @@ export async function POST(request: NextRequest) {
     })
 
     for (const id of expenseIds) {
-      batch.update(doc(db, 'expenses', id), { paid: true })
+      batch.update(db.collection('expenses').doc(id), { paid: true })
     }
 
     await batch.commit()
