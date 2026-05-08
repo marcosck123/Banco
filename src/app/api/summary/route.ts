@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
     const startDate = Timestamp.fromDate(new Date(year, month - 1, 1))
     const endDate = Timestamp.fromDate(new Date(year, month, 0, 23, 59, 59, 999))
 
-    const [settings, expSnap, paySnap] = await Promise.all([
+    const [settings, expSnap] = await Promise.all([
       getSettings(),
       getDocs(
         query(
@@ -49,17 +49,9 @@ export async function GET(request: NextRequest) {
           where('date', '<=', endDate)
         )
       ),
-      getDocs(
-        query(
-          collection(db, 'payments'),
-          where('month', '==', month),
-          where('year', '==', year)
-        )
-      ),
     ])
 
     const expenses = expSnap.docs.map((d) => d.data())
-    const payment = paySnap.empty ? null : { id: paySnap.docs[0].id, ...paySnap.docs[0].data() }
 
     const investments = expenses.filter((e) => e.recordType === 'investimento')
     const outflows = expenses.filter((e) => e.recordType !== 'investimento')
@@ -110,7 +102,6 @@ export async function GET(request: NextRequest) {
       creditLimit: settings.creditLimit,
       eachShare: totalSpent / 2,
       isPaid: unpaidOutflows.length === 0 && outflows.length > 0,
-      payment,
       user1Name: settings.user1Name,
       user2Name: settings.user2Name,
       expenseCount: outflows.length,
