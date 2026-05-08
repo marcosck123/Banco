@@ -309,7 +309,7 @@ export default function Pagamento() {
 
       {/* Confirmation Modal */}
       {confirmOpen && summary && (
-        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-3xl w-full max-w-md p-6 space-y-4 shadow-2xl">
             <div className="text-center">
               <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-3">
