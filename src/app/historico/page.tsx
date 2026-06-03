@@ -13,6 +13,9 @@ interface Expense {
   splitType: string
   recordType: string
   createdAt: string
+  parcelas?: number
+  parcelaAtual?: number
+  totalParcelado?: number
 }
 
 const SPLIT_BADGE: Record<string, { label: string; color: string }> = {
@@ -215,6 +218,11 @@ export default function Historico() {
                               </span>
                             ) : null
                           })()}
+                          {expense.parcelas && expense.parcelaAtual && (
+                            <span className="inline-block text-xs px-1.5 py-0.5 rounded-full font-medium text-indigo-600 bg-indigo-50">
+                              📅 {expense.parcelaAtual}/{expense.parcelas}x
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div className="text-right flex-shrink-0">

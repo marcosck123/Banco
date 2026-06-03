@@ -8,11 +8,19 @@ type RecordType = 'despesa' | 'pagamento' | 'investimento'
 
 const INVESTMENT_CATEGORIES = ['Salário', 'Freelance', 'Aluguel recebido', 'Dividendos', 'Outros']
 
-const RECORD_TYPES: { value: RecordType; label: string; emoji: string; color: string; activeStyle: string }[] = [
-  { value: 'despesa',     label: 'Despesa',     emoji: '🔴', color: 'text-red-600',    activeStyle: 'border-red-400 bg-red-50 text-red-700' },
-  { value: 'pagamento',   label: 'Pagamento',   emoji: '🟠', color: 'text-orange-600', activeStyle: 'border-orange-400 bg-orange-50 text-orange-700' },
-  { value: 'investimento',label: 'Investimento',emoji: '🟢', color: 'text-emerald-600',activeStyle: 'border-emerald-500 bg-emerald-50 text-emerald-700' },
+const RECORD_TYPES: { value: RecordType; label: string; emoji: string; activeStyle: string }[] = [
+  { value: 'despesa',      label: 'Despesa',      emoji: '🔴', activeStyle: 'border-red-400 bg-red-50 text-red-700' },
+  { value: 'pagamento',    label: 'Pagamento',    emoji: '🟠', activeStyle: 'border-orange-400 bg-orange-50 text-orange-700' },
+  { value: 'investimento', label: 'Investimento', emoji: '🟢', activeStyle: 'border-emerald-500 bg-emerald-50 text-emerald-700' },
 ]
+
+function parseBRL(value: string) {
+  return parseFloat(value.replace(',', '.'))
+}
+
+function formatBRL(value: number) {
+  return value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
 
 export default function NovaTransacao() {
   const router = useRouter()
@@ -23,6 +31,8 @@ export default function NovaTransacao() {
   const today = new Date().toISOString().split('T')[0]
 
   const [recordType, setRecordType] = useState<RecordType>('despesa')
+  const [parcelado, setParcelado] = useState(false)
+  const [parcelas, setParcelas] = useState('2')
   const [form, setForm] = useState({
     amount: '',
     description: '',
@@ -33,6 +43,13 @@ export default function NovaTransacao() {
   })
 
   const isInvestment = recordType === 'investimento'
+  const isDespesa = recordType === 'despesa'
+
+  const totalNum = parseBRL(form.amount)
+  const parcelasNum = parseInt(parcelas) || 1
+  const parcelaValor = parcelado && parcelasNum > 1 && !isNaN(totalNum) && totalNum > 0
+    ? totalNum / parcelasNum
+    : null
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }))
@@ -40,13 +57,13 @@ export default function NovaTransacao() {
   }
 
   const handleAmountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value.replace(/[^\d.,]/g, '')
-    setForm((prev) => ({ ...prev, amount: value }))
+    setForm((prev) => ({ ...prev, amount: e.target.value.replace(/[^\d.,]/g, '') }))
     setError('')
   }
 
   const handleRecordTypeChange = (type: RecordType) => {
     setRecordType(type)
+    if (type !== 'despesa') setParcelado(false)
     setForm((prev) => ({
       ...prev,
       category: type === 'investimento' ? 'Salário' : 'Alimentação',
@@ -58,7 +75,7 @@ export default function NovaTransacao() {
     e.preventDefault()
     setError('')
 
-    const amountNum = parseFloat(form.amount.replace(',', '.'))
+    const amountNum = parseBRL(form.amount)
     if (isNaN(amountNum) || amountNum <= 0) {
       setError('Informe um valor válido maior que zero.')
       return
@@ -67,21 +84,31 @@ export default function NovaTransacao() {
       setError('Informe uma descrição.')
       return
     }
+    if (parcelado && (parcelasNum < 2 || parcelasNum > 72)) {
+      setError('Número de parcelas deve ser entre 2 e 72.')
+      return
+    }
+
+    const savedAmount = parcelado && parcelaValor ? parcelaValor : amountNum
 
     setLoading(true)
-
     try {
       const res = await fetch('/api/expenses', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          amount: amountNum,
+          amount: savedAmount,
           description: form.description.trim(),
           category: form.category,
           paidBy: form.paidBy,
           date: form.date,
           splitType: isInvestment ? 'shared' : form.splitType,
           recordType,
+          ...(parcelado && parcelasNum > 1 ? {
+            parcelas: parcelasNum,
+            parcelaAtual: 1,
+            totalParcelado: amountNum,
+          } : {}),
         }),
         signal: AbortSignal.timeout(12000),
       })
@@ -105,8 +132,6 @@ export default function NovaTransacao() {
     }
   }
 
-  const currentType = RECORD_TYPES.find((t) => t.value === recordType)!
-
   if (success) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen gap-4">
@@ -116,7 +141,12 @@ export default function NovaTransacao() {
         <p className="text-xl font-bold text-gray-800">
           {isInvestment ? 'Investimento registrado!' : recordType === 'pagamento' ? 'Pagamento registrado!' : 'Despesa adicionada!'}
         </p>
-        <p className="text-gray-500 text-sm">Redirecionando...</p>
+        {parcelado && parcelaValor && (
+          <p className="text-gray-500 text-sm">
+            Parcela 1/{parcelasNum} · R$ {formatBRL(parcelaValor)}/mês
+          </p>
+        )}
+        <p className="text-gray-400 text-sm">Redirecionando...</p>
       </div>
     )
   }
@@ -159,26 +189,99 @@ export default function NovaTransacao() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Amount */}
-        <div className="bg-white rounded-2xl p-5 shadow-sm border border-emerald-50">
-          <label className="block text-sm font-medium text-gray-700 mb-2">Valor</label>
-          <div className="flex items-center gap-2">
-            <span className={`font-bold text-lg ${isInvestment ? 'text-emerald-500' : 'text-red-400'}`}>
-              {isInvestment ? '+' : '-'} R$
-            </span>
-            <input
-              type="text"
-              name="amount"
-              inputMode="decimal"
-              value={form.amount}
-              onChange={handleAmountChange}
-              placeholder="0,00"
-              className={`flex-1 text-3xl font-bold border-none outline-none bg-transparent placeholder-gray-300 ${
-                isInvestment ? 'text-emerald-600' : 'text-red-500'
-              }`}
-              required
-            />
+
+        {/* Amount / Parcelamento */}
+        <div className="bg-white rounded-2xl p-5 shadow-sm border border-emerald-50 space-y-4">
+
+          {/* Parcelado toggle — only for despesa */}
+          {isDespesa && (
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-700">Parcelado?</p>
+                <p className="text-xs text-gray-400">Dividir em meses</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setParcelado((p) => !p)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  parcelado ? 'bg-emerald-500' : 'bg-gray-200'
+                }`}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                  parcelado ? 'translate-x-6' : 'translate-x-1'
+                }`} />
+              </button>
+            </div>
+          )}
+
+          {/* Amount input */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">
+              {parcelado ? 'Valor total da compra' : 'Valor'}
+            </label>
+            <div className="flex items-center gap-2">
+              <span className={`font-bold text-lg ${isInvestment ? 'text-emerald-500' : 'text-red-400'}`}>
+                {isInvestment ? '+' : '-'} R$
+              </span>
+              <input
+                type="text"
+                name="amount"
+                inputMode="decimal"
+                value={form.amount}
+                onChange={handleAmountChange}
+                placeholder="0,00"
+                className={`flex-1 text-3xl font-bold border-none outline-none bg-transparent placeholder-gray-300 ${
+                  isInvestment ? 'text-emerald-600' : 'text-red-500'
+                }`}
+                required
+              />
+            </div>
           </div>
+
+          {/* Parcelas input */}
+          {parcelado && (
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-2">Número de parcelas</label>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setParcelas((p) => String(Math.max(2, parseInt(p) - 1)))}
+                  className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-700 font-bold text-lg hover:bg-gray-200 transition-colors"
+                >
+                  −
+                </button>
+                <input
+                  type="number"
+                  value={parcelas}
+                  onChange={(e) => setParcelas(e.target.value)}
+                  min={2}
+                  max={72}
+                  className="w-16 text-center text-xl font-bold border border-gray-200 rounded-xl py-2 focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                />
+                <button
+                  type="button"
+                  onClick={() => setParcelas((p) => String(Math.min(72, parseInt(p) + 1)))}
+                  className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-700 font-bold text-lg hover:bg-gray-200 transition-colors"
+                >
+                  +
+                </button>
+                <span className="text-gray-400 text-sm">meses</span>
+              </div>
+            </div>
+          )}
+
+          {/* Installment preview */}
+          {parcelaValor !== null && (
+            <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-3 flex items-center justify-between">
+              <div>
+                <p className="text-xs text-emerald-600 font-medium">Valor por parcela</p>
+                <p className="text-xs text-emerald-500">1 de {parcelasNum} meses</p>
+              </div>
+              <p className="text-2xl font-bold text-emerald-700">
+                R$ {formatBRL(parcelaValor)}
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Description */}
@@ -189,7 +292,7 @@ export default function NovaTransacao() {
             name="description"
             value={form.description}
             onChange={handleChange}
-            placeholder={isInvestment ? 'Ex: Salário do mês' : 'Ex: Jantar no restaurante'}
+            placeholder={isInvestment ? 'Ex: Salário do mês' : parcelado ? 'Ex: Moto Honda' : 'Ex: Jantar no restaurante'}
             className="w-full border border-gray-200 rounded-xl px-4 py-3 text-gray-800 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:border-transparent"
             required
           />
@@ -210,34 +313,29 @@ export default function NovaTransacao() {
           </select>
         </div>
 
-        {/* Who (paidBy = who registered / deposited) */}
+        {/* Who paid */}
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-emerald-50">
           <label className="block text-sm font-medium text-gray-700 mb-3">
             {isInvestment ? 'Quem depositou?' : 'Quem pagou?'}
           </label>
           <div className="grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              onClick={() => setForm((prev) => ({ ...prev, paidBy: 'user1' }))}
-              className={`py-3 rounded-xl font-semibold transition-all border-2 ${
-                form.paidBy === 'user1'
-                  ? 'border-blue-500 bg-blue-50 text-blue-700'
-                  : 'border-gray-200 bg-gray-50 text-gray-600 hover:border-gray-300'
-              }`}
-            >
-              👤 Você
-            </button>
-            <button
-              type="button"
-              onClick={() => setForm((prev) => ({ ...prev, paidBy: 'user2' }))}
-              className={`py-3 rounded-xl font-semibold transition-all border-2 ${
-                form.paidBy === 'user2'
-                  ? 'border-purple-500 bg-purple-50 text-purple-700'
-                  : 'border-gray-200 bg-gray-50 text-gray-600 hover:border-gray-300'
-              }`}
-            >
-              👤 Namorada
-            </button>
+            {[
+              { value: 'user1', label: '👤 Você',     active: 'border-blue-500 bg-blue-50 text-blue-700' },
+              { value: 'user2', label: '👤 Namorada', active: 'border-purple-500 bg-purple-50 text-purple-700' },
+            ].map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setForm((prev) => ({ ...prev, paidBy: opt.value }))}
+                className={`py-3 rounded-xl font-semibold transition-all border-2 ${
+                  form.paidBy === opt.value
+                    ? opt.active
+                    : 'border-gray-200 bg-gray-50 text-gray-600 hover:border-gray-300'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -248,9 +346,9 @@ export default function NovaTransacao() {
             <p className="text-xs text-gray-400 mb-3">Decida se é uma conta do casal ou individual</p>
             <div className="grid grid-cols-3 gap-2">
               {[
-                { value: 'shared',     emoji: '👫', label: 'Casal',    sub: '50/50',           active: 'border-emerald-500 bg-emerald-50 text-emerald-700' },
-                { value: 'user1_only', emoji: '🧍', label: 'Só você',  sub: 'ela não divide',  active: 'border-blue-500 bg-blue-50 text-blue-700' },
-                { value: 'user2_only', emoji: '🧍‍♀️', label: 'Só ela',   sub: 'você não divide', active: 'border-purple-500 bg-purple-50 text-purple-700' },
+                { value: 'shared',     emoji: '👫', label: 'Casal',   sub: '50/50',           active: 'border-emerald-500 bg-emerald-50 text-emerald-700' },
+                { value: 'user1_only', emoji: '🧍', label: 'Só você', sub: 'ela não divide',  active: 'border-blue-500 bg-blue-50 text-blue-700' },
+                { value: 'user2_only', emoji: '🧍‍♀️', label: 'Só ela',  sub: 'você não divide', active: 'border-purple-500 bg-purple-50 text-purple-700' },
               ].map((opt) => (
                 <button
                   key={opt.value}
@@ -273,7 +371,7 @@ export default function NovaTransacao() {
 
         {/* Date */}
         <div className="bg-white rounded-2xl p-4 shadow-sm border border-emerald-50">
-          <label className="block text-sm font-medium text-gray-700 mb-2">Data</label>
+          <label className="block text-sm font-medium text-gray-700 mb-2">Data da 1ª parcela</label>
           <input
             type="date"
             name="date"
@@ -305,7 +403,10 @@ export default function NovaTransacao() {
               </svg>
               Salvando...
             </span>
-          ) : isInvestment ? '💰 Registrar Investimento' : recordType === 'pagamento' ? '🧾 Registrar Pagamento' : '➕ Adicionar Despesa'}
+          ) : isInvestment ? '💰 Registrar Investimento'
+            : recordType === 'pagamento' ? '🧾 Registrar Pagamento'
+            : parcelado ? `📅 Adicionar Parcela 1/${parcelasNum}`
+            : '➕ Adicionar Despesa'}
         </button>
       </form>
     </div>

@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
   try {
     const db = getDb()
     const body = await request.json()
-    const { amount, description, paidBy, category, date, splitType = 'shared', recordType = 'despesa' } = body
+    const { amount, description, paidBy, category, date, splitType = 'shared', recordType = 'despesa', parcelas, parcelaAtual, totalParcelado } = body
 
     if (!amount || !description || !paidBy || !category || !date) {
       return NextResponse.json({ error: 'Todos os campos são obrigatórios' }, { status: 400 })
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Tipo de registro inválido' }, { status: 400 })
     }
 
-    const docRef = await db.collection('expenses').add({
+    const docData: Record<string, unknown> = {
       amount: parseFloat(amount),
       description,
       paidBy,
@@ -72,7 +72,15 @@ export async function POST(request: NextRequest) {
       recordType,
       paid: false,
       createdAt: Timestamp.now(),
-    })
+    }
+
+    if (parcelas && parcelaAtual) {
+      docData.parcelas = parseInt(parcelas)
+      docData.parcelaAtual = parseInt(parcelaAtual)
+      if (totalParcelado) docData.totalParcelado = parseFloat(totalParcelado)
+    }
+
+    const docRef = await db.collection('expenses').add(docData)
 
     return NextResponse.json({ id: docRef.id }, { status: 201 })
   } catch (error) {
