@@ -82,8 +82,9 @@ export async function GET(request: NextRequest) {
     }> = {}
 
     for (const e of outflows) {
-      if (!e.parcelas || !e.parcelaGroupId) continue
-      const key = e.parcelaGroupId
+      if (!e.parcelas) continue
+      // Use parcelaGroupId when available, fall back to description+parcelas for older records
+      const key = e.parcelaGroupId ?? `${e.description}__${e.parcelas}__${e.totalParcelado ?? e.amount * e.parcelas}`
 
       if (!installmentMap[key]) {
         installmentMap[key] = {
