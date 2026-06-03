@@ -185,19 +185,38 @@ export default function Carteira() {
                   <div className="absolute inset-x-0 top-1/2 h-px bg-yellow-600/40" />
                 </div>
 
-                <p className="text-emerald-200 text-[10px] font-medium uppercase tracking-wide">Retirado</p>
-                <p className="text-xl font-bold leading-tight mt-0.5">
-                  {formatCurrency(data.totalWithdrawn)}
-                </p>
-
-                <p className="text-emerald-200 text-[10px] mt-2">{periodLabel}</p>
-                <p className="text-emerald-100 text-[10px] mt-0.5">{data.transactionCount} transações</p>
-
-                {data.totalFuture > 0 && (
-                  <div className="mt-3 pt-2 border-t border-white/20">
-                    <p className="text-emerald-200 text-[10px]">Comprometido</p>
-                    <p className="text-white text-sm font-bold">{formatCurrency(data.totalFuture)}</p>
-                  </div>
+                {period === 'all' ? (
+                  <>
+                    <p className="text-emerald-200 text-[10px] font-medium uppercase tracking-wide">Total comprometido</p>
+                    <p className="text-xl font-bold leading-tight mt-0.5">
+                      {formatCurrency(data.totalCommitted)}
+                    </p>
+                    <div className="mt-3 pt-2 border-t border-white/20">
+                      <p className="text-emerald-200 text-[10px]">Já retirado</p>
+                      <p className="text-white text-sm font-bold">{formatCurrency(data.totalWithdrawn)}</p>
+                    </div>
+                    {data.totalFuture > 0 && (
+                      <div className="mt-1">
+                        <p className="text-emerald-200 text-[10px]">A vencer</p>
+                        <p className="text-white text-sm font-bold">{formatCurrency(data.totalFuture)}</p>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <p className="text-emerald-200 text-[10px] font-medium uppercase tracking-wide">Retirado</p>
+                    <p className="text-xl font-bold leading-tight mt-0.5">
+                      {formatCurrency(data.totalWithdrawn)}
+                    </p>
+                    <p className="text-emerald-200 text-[10px] mt-2">{periodLabel}</p>
+                    <p className="text-emerald-100 text-[10px] mt-0.5">{data.transactionCount} transações</p>
+                    {data.totalFuture > 0 && (
+                      <div className="mt-3 pt-2 border-t border-white/20">
+                        <p className="text-emerald-200 text-[10px]">Comprometido</p>
+                        <p className="text-white text-sm font-bold">{formatCurrency(data.totalFuture)}</p>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
