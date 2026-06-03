@@ -11,12 +11,18 @@ export async function GET(request: NextRequest) {
     now.setHours(23, 59, 59, 999)
 
     let startDate: Date | null = null
+    let endDate: Date = now
+
     if (period === 'month') {
       startDate = new Date(now.getFullYear(), now.getMonth(), 1)
     } else if (period === '3m') {
       startDate = new Date(now.getFullYear(), now.getMonth() - 2, 1)
     } else if (period === '6m') {
       startDate = new Date(now.getFullYear(), now.getMonth() - 5, 1)
+    } else if (/^\d{4}-\d{2}$/.test(period)) {
+      const [y, m] = period.split('-').map(Number)
+      startDate = new Date(y, m - 1, 1)
+      endDate = new Date(y, m, 0, 23, 59, 59, 999)
     }
 
     // Fetch all expenses (no date filter — we need full installment history)
@@ -44,9 +50,9 @@ export async function GET(request: NextRequest) {
     // Outflows only (no investments)
     const outflows = all.filter((e) => e.recordType !== 'investimento')
 
-    // Withdrawn = outflows with date <= now
-    const withdrawn = outflows.filter((e) => e.date <= now)
-    // Future = outflows with date > now (future installments)
+    // Withdrawn = outflows with date <= endDate
+    const withdrawn = outflows.filter((e) => e.date <= endDate)
+    // Future = outflows with date > now (future installments, always relative to now)
     const future = outflows.filter((e) => e.date > now)
 
     // Apply period filter to withdrawn for the stats display

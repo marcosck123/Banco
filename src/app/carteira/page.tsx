@@ -1,9 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { formatCurrency, CATEGORY_ICONS } from '@/lib/utils'
-
-type Period = 'month' | '3m' | '6m' | 'all'
 
 interface Transaction {
   id: string
@@ -54,29 +52,31 @@ interface CarteiraData {
   transactions: Transaction[]
 }
 
-const PERIOD_LABELS: Record<Period, string> = {
-  month: 'Este mês',
-  '3m': '3 meses',
-  '6m': '6 meses',
-  all: 'Tudo',
-}
-
 const MONTH_NAMES = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 
-function monthLabel(key: string) {
-  const [, m] = key.split('-')
-  return MONTH_NAMES[parseInt(m) - 1]
+function generateMonthOptions() {
+  const now = new Date()
+  return Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    return {
+      label: `${MONTH_NAMES[d.getMonth()]}/${String(d.getFullYear()).slice(2)}`,
+      value: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+    }
+  })
 }
 
 export default function Carteira() {
-  const [period, setPeriod] = useState<Period>('all')
+  const [period, setPeriod] = useState('all')
   const [data, setData] = useState<CarteiraData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [cancellingGroup, setCancellingGroup] = useState<string | null>(null)
-  const [categoryView, setCategoryView] = useState<'withdrawn' | 'full'>('withdrawn')
+  const [selectedInstallment, setSelectedInstallment] = useState<InstallmentGroup | null>(null)
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
 
-  const fetchData = async (p: Period) => {
+  const monthOptions = useMemo(() => generateMonthOptions(), [])
+
+  const fetchData = async (p: string) => {
     setLoading(true)
     setError('')
     try {
@@ -94,6 +94,7 @@ export default function Carteira() {
   }
 
   useEffect(() => { fetchData(period) }, [period])
+  useEffect(() => { setSelectedCategory(null) }, [period])
 
   const cancelGroup = async (group: InstallmentGroup) => {
     if (!confirm(`Cancelar as ${group.futureIds.length} parcelas restantes de "${group.description}"?`)) return
@@ -112,31 +113,45 @@ export default function Carteira() {
     }
   }
 
-  const maxMonthly = data
-    ? Math.max(...data.monthlyBreakdown.map((m) => m.total), 1)
-    : 1
+  const filteredTransactions = useMemo(() => {
+    if (!data) return []
+    return selectedCategory
+      ? data.transactions.filter((t) => t.category === selectedCategory)
+      : data.transactions
+  }, [data, selectedCategory])
+
+  const periodLabel = useMemo(() => {
+    if (period === 'all') return 'Total geral'
+    if (period === 'month') return 'Este mês'
+    const found = monthOptions.find((m) => m.value === period)
+    return found ? found.label : period
+  }, [period, monthOptions])
 
   return (
-    <div className="py-6 space-y-6">
+    <div className="py-6 space-y-5">
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-emerald-900">Carteira</h1>
         <p className="text-emerald-600 text-sm">Resumo financeiro</p>
       </div>
 
-      {/* Period filter */}
-      <div className="flex gap-2">
-        {(Object.keys(PERIOD_LABELS) as Period[]).map((p) => (
+      {/* Period filter — horizontal scroll */}
+      <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+        {[
+          { label: 'Tudo', value: 'all' },
+          { label: 'Este mês', value: 'month' },
+          ...monthOptions.slice(1),
+        ].map((opt) => (
           <button
-            key={p}
-            onClick={() => setPeriod(p)}
-            className={`flex-1 py-2 rounded-xl text-sm font-semibold transition-all ${
-              period === p
+            key={opt.value}
+            onClick={() => setPeriod(opt.value)}
+            className={`flex-shrink-0 px-4 py-2 rounded-xl text-sm font-semibold transition-all ${
+              period === opt.value
                 ? 'bg-emerald-600 text-white shadow-sm'
                 : 'bg-white text-gray-500 border border-emerald-100 hover:border-emerald-300'
             }`}
           >
-            {PERIOD_LABELS[p]}
+            {opt.label}
           </button>
         ))}
       </div>
@@ -153,222 +168,150 @@ export default function Carteira() {
         </div>
       ) : data && (
         <>
-          {/* Main totals */}
-          <div className="bg-gradient-to-br from-emerald-600 to-emerald-800 rounded-2xl p-5 text-white shadow-lg">
-            <p className="text-emerald-100 text-sm">Total retirado da conta</p>
-            <p className="text-4xl font-bold mt-1">{formatCurrency(data.totalWithdrawn)}</p>
-            <p className="text-emerald-200 text-xs mt-1">{data.transactionCount} transações</p>
+          {/* Top row: bank card + installments */}
+          <div className="flex gap-3 items-stretch">
+            {/* Bank card */}
+            <div className="w-[46%] flex-shrink-0">
+              <div className="relative bg-gradient-to-br from-emerald-700 via-emerald-600 to-teal-500 rounded-2xl p-4 text-white shadow-lg h-full overflow-hidden">
+                {/* Decorative circles */}
+                <div className="absolute -top-6 -right-6 w-24 h-24 bg-white/10 rounded-full pointer-events-none" />
+                <div className="absolute -bottom-8 -left-8 w-28 h-28 bg-white/10 rounded-full pointer-events-none" />
 
-            {data.totalFuture > 0 && (
-              <div className="mt-4 pt-4 border-t border-white/20 flex justify-between items-center">
-                <div>
-                  <p className="text-emerald-100 text-xs">Comprometido futuro</p>
-                  <p className="text-white font-bold text-lg">{formatCurrency(data.totalFuture)}</p>
+                {/* Chip */}
+                <div className="relative w-7 h-5 bg-yellow-300/80 rounded-sm mb-3 overflow-hidden">
+                  <div className="absolute inset-y-0 left-1/2 w-px bg-yellow-600/40" />
+                  <div className="absolute inset-x-0 top-1/2 h-px bg-yellow-600/40" />
                 </div>
-                <div className="text-right">
-                  <p className="text-emerald-100 text-xs">Parcelas a vencer</p>
-                  <p className="text-white font-bold text-lg">
-                    {data.installmentGroups.reduce((s, g) => s + g.futureCount, 0)}x
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
 
-          {/* Monthly bar chart */}
-          {data.monthlyBreakdown.some((m) => m.total > 0) && (
-            <div className="bg-white rounded-2xl p-4 shadow-sm border border-emerald-50">
-              <p className="text-sm font-semibold text-gray-700 mb-4">Últimos 6 meses</p>
-              <div className="flex items-end gap-2 h-24">
-                {data.monthlyBreakdown.map(({ month, total }) => {
-                  const pct = (total / maxMonthly) * 100
-                  return (
-                    <div key={month} className="flex-1 flex flex-col items-center gap-1">
-                      <p className="text-xs text-gray-400 font-medium">
-                        {total > 0 ? formatCurrency(total).replace('R$ ', '') : ''}
-                      </p>
-                      <div className="w-full flex items-end" style={{ height: 56 }}>
-                        <div
-                          className="w-full bg-emerald-400 rounded-t-lg transition-all"
-                          style={{ height: `${Math.max(pct, total > 0 ? 4 : 0)}%` }}
-                        />
-                      </div>
-                      <p className="text-xs text-gray-400">{monthLabel(month)}</p>
-                    </div>
-                  )
-                })}
+                <p className="text-emerald-200 text-[10px] font-medium uppercase tracking-wide">Retirado</p>
+                <p className="text-xl font-bold leading-tight mt-0.5">
+                  {formatCurrency(data.totalWithdrawn)}
+                </p>
+
+                <p className="text-emerald-200 text-[10px] mt-2">{periodLabel}</p>
+                <p className="text-emerald-100 text-[10px] mt-0.5">{data.transactionCount} transações</p>
+
+                {data.totalFuture > 0 && (
+                  <div className="mt-3 pt-2 border-t border-white/20">
+                    <p className="text-emerald-200 text-[10px]">Comprometido</p>
+                    <p className="text-white text-sm font-bold">{formatCurrency(data.totalFuture)}</p>
+                  </div>
+                )}
               </div>
             </div>
-          )}
 
-          {/* Active installments */}
-          {data.installmentGroups.length > 0 && (
-            <div>
-              <h2 className="font-bold text-gray-800 mb-3">Parcelamentos ativos</h2>
-              <div className="space-y-3">
-                {data.installmentGroups.map((group, i) => {
-                  const progressPct = (group.withdrawnCount / group.parcelas) * 100
-                  const isDone = group.futureCount === 0
-                  return (
-                    <div key={i} className="bg-white rounded-2xl p-4 shadow-sm border border-emerald-50">
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xl">{CATEGORY_ICONS[group.category] || '📦'}</span>
-                          <div>
-                            <p className="font-semibold text-gray-800 text-sm">{group.description}</p>
-                            <p className="text-xs text-gray-400">{group.category}</p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                            isDone
-                              ? 'bg-emerald-100 text-emerald-700'
-                              : 'bg-indigo-50 text-indigo-600'
-                          }`}>
-                            {isDone ? '✅ Quitado' : `📅 ${group.withdrawnCount}/${group.parcelas}x`}
-                          </span>
-                          <p className="text-xs text-gray-400 mt-1">{formatCurrency(group.monthlyAmount)}/mês</p>
-                        </div>
-                      </div>
-
-                      {/* Progress bar */}
-                      <div className="w-full bg-gray-100 rounded-full h-2 mb-2">
-                        <div
-                          className={`h-2 rounded-full transition-all ${isDone ? 'bg-emerald-500' : 'bg-indigo-400'}`}
-                          style={{ width: `${progressPct}%` }}
-                        />
-                      </div>
-
-                      <div className="flex justify-between text-xs text-gray-500">
-                        <span>
-                          Retirado: <span className="font-semibold text-gray-700">{formatCurrency(group.withdrawnAmount)}</span>
-                        </span>
-                        {group.futureAmount > 0 && (
-                          <span>
-                            Restante: <span className="font-semibold text-orange-500">{formatCurrency(group.futureAmount)}</span>
-                          </span>
-                        )}
-                        <span>
-                          Total: <span className="font-semibold text-gray-700">{formatCurrency(group.totalParcelado)}</span>
-                        </span>
-                      </div>
-
-                      {!isDone && group.futureIds.length > 0 && (
-                        <button
-                          onClick={() => cancelGroup(group)}
-                          disabled={cancellingGroup === group.description}
-                          className="mt-3 w-full py-2 rounded-xl text-xs font-semibold text-red-500 border border-red-100 hover:bg-red-50 transition-colors disabled:opacity-40"
-                        >
-                          {cancellingGroup === group.description
-                            ? 'Cancelando...'
-                            : `🗑️ Cancelar ${group.futureIds.length} parcelas restantes`}
-                        </button>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Category breakdown */}
-          {data.categoryBreakdown.length > 0 && (
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="font-bold text-gray-800">Por categoria</h2>
-                <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
-                  <button
-                    onClick={() => setCategoryView('withdrawn')}
-                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-                      categoryView === 'withdrawn'
-                        ? 'bg-white text-emerald-700 shadow-sm'
-                        : 'text-gray-500'
-                    }`}
-                  >
-                    Retirado
-                  </button>
-                  <button
-                    onClick={() => setCategoryView('full')}
-                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-                      categoryView === 'full'
-                        ? 'bg-white text-emerald-700 shadow-sm'
-                        : 'text-gray-500'
-                    }`}
-                  >
-                    Total
-                  </button>
+            {/* Installments panel */}
+            <div className="flex-1 min-w-0 flex flex-col">
+              <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Parcelamentos</p>
+              {data.installmentGroups.length === 0 ? (
+                <div className="bg-white rounded-2xl p-3 shadow-sm border border-emerald-50 flex-1 flex items-center justify-center">
+                  <p className="text-xs text-gray-400 text-center">Sem<br/>parcelamentos</p>
                 </div>
-              </div>
-              <div className="bg-white rounded-2xl shadow-sm border border-emerald-50 overflow-hidden">
-                {(categoryView === 'withdrawn' ? data.categoryBreakdown : data.categoryBreakdownFull).map(({ category, total }, i) => {
-                  const base = categoryView === 'withdrawn'
-                    ? data.totalWithdrawn
-                    : data.totalWithdrawn + data.totalFuture
-                  const pct = base > 0 ? (total / base) * 100 : 0
-                  return (
-                    <div key={category} className={`flex items-center gap-3 px-4 py-3 ${i > 0 ? 'border-t border-gray-50' : ''}`}>
-                      <span className="text-xl w-8 text-center">{CATEGORY_ICONS[category] || '📦'}</span>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex justify-between items-center mb-1">
-                          <p className="text-sm font-medium text-gray-700 truncate">{category}</p>
-                          <p className="text-sm font-semibold text-gray-800 ml-2">{formatCurrency(total)}</p>
+              ) : (
+                <div className="space-y-1.5 overflow-y-auto no-scrollbar flex-1" style={{ maxHeight: 200 }}>
+                  {data.installmentGroups.map((g, i) => {
+                    const isDone = g.futureCount === 0
+                    const pct = (g.withdrawnCount / g.parcelas) * 100
+                    return (
+                      <button
+                        key={i}
+                        onClick={() => setSelectedInstallment(g)}
+                        className="w-full text-left bg-white rounded-xl px-2.5 py-2 shadow-sm border border-emerald-50 hover:border-emerald-300 transition-colors"
+                      >
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                          <span className="text-sm flex-shrink-0">{CATEGORY_ICONS[g.category] || '📦'}</span>
+                          <p className="text-xs font-semibold text-gray-800 truncate flex-1">{g.description}</p>
+                          <span className={`text-[10px] font-bold flex-shrink-0 ${isDone ? 'text-emerald-600' : 'text-indigo-500'}`}>
+                            {g.withdrawnCount}/{g.parcelas}x
+                          </span>
                         </div>
-                        <div className="w-full bg-gray-100 rounded-full h-1.5">
+                        <div className="w-full bg-gray-100 rounded-full h-1">
                           <div
-                            className={`h-1.5 rounded-full ${categoryView === 'full' ? 'bg-indigo-400' : 'bg-emerald-400'}`}
-                            style={{ width: `${pct}%` }}
+                            className={`h-1 rounded-full transition-all ${isDone ? 'bg-emerald-400' : 'bg-indigo-400'}`}
+                            style={{ width: `${Math.max(pct, pct > 0 ? 4 : 0)}%` }}
                           />
                         </div>
-                      </div>
-                      <p className="text-xs text-gray-400 w-8 text-right">{Math.round(pct)}%</p>
-                    </div>
-                  )
-                })}
-              </div>
-              {categoryView === 'full' && (
-                <p className="text-xs text-gray-400 mt-2 text-center">Inclui parcelas futuras comprometidas</p>
+                      </button>
+                    )
+                  })}
+                </div>
               )}
+            </div>
+          </div>
+
+          {/* Category filter pills */}
+          {data.categoryBreakdown.length > 0 && (
+            <div>
+              <p className="text-sm font-bold text-gray-700 mb-2">Por categoria</p>
+              <div className="flex gap-2 flex-wrap">
+                <button
+                  onClick={() => setSelectedCategory(null)}
+                  className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                    !selectedCategory
+                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                      : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300'
+                  }`}
+                >
+                  Tudo · {formatCurrency(data.totalWithdrawn)}
+                </button>
+                {data.categoryBreakdown.map(({ category, total }) => (
+                  <button
+                    key={category}
+                    onClick={() => setSelectedCategory(selectedCategory === category ? null : category)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                      selectedCategory === category
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                        : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300'
+                    }`}
+                  >
+                    <span>{CATEGORY_ICONS[category] || '📦'}</span>
+                    <span>{category}</span>
+                    <span className={`font-normal ${selectedCategory === category ? 'text-emerald-100' : 'text-gray-400'}`}>
+                      {formatCurrency(total)}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
-          {/* Transactions list */}
-          {data.transactions.length > 0 && (
+          {/* Transaction list */}
+          {filteredTransactions.length > 0 ? (
             <div>
-              <h2 className="font-bold text-gray-800 mb-3">Transações do período</h2>
+              <p className="text-sm font-bold text-gray-700 mb-2">
+                {selectedCategory ?? 'Todas as transações'}
+                <span className="font-normal text-gray-400 ml-1">({filteredTransactions.length})</span>
+              </p>
               <div className="bg-white rounded-2xl shadow-sm border border-emerald-50 overflow-hidden">
-                {data.transactions.map((t, i) => {
+                {filteredTransactions.map((t, i) => {
                   const date = new Date(t.date)
                   const dateStr = `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`
                   return (
                     <div key={t.id} className={`flex items-center gap-3 px-4 py-3 ${i > 0 ? 'border-t border-gray-50' : ''}`}>
                       <span className="text-xl w-8 text-center flex-shrink-0">{CATEGORY_ICONS[t.category] || '📦'}</span>
                       <div className="flex-1 min-w-0">
-                        <div className="flex justify-between items-start">
-                          <div className="min-w-0">
-                            <p className="text-sm font-medium text-gray-800 truncate">{t.description}</p>
-                            <p className="text-xs text-gray-400">
-                              {dateStr}
-                              {t.parcelas && t.parcelaAtual && (
-                                <span className="ml-1 text-indigo-500">· {t.parcelaAtual}/{t.parcelas}x</span>
-                              )}
-                              {t.splitType === 'user1_only' || t.splitType === 'user2_only' ? (
-                                <span className="ml-1 text-emerald-500">· Só você</span>
-                              ) : null}
-                            </p>
-                          </div>
-                          <p className="text-sm font-semibold text-gray-800 ml-2 flex-shrink-0">
-                            -{formatCurrency(t.amount)}
-                          </p>
-                        </div>
+                        <p className="text-sm font-medium text-gray-800 truncate">{t.description}</p>
+                        <p className="text-xs text-gray-400">
+                          {dateStr}
+                          {t.parcelas && t.parcelaAtual && (
+                            <span className="text-indigo-500 ml-1">· {t.parcelaAtual}/{t.parcelas}x</span>
+                          )}
+                          {(t.splitType === 'user1_only' || t.splitType === 'user2_only') && (
+                            <span className="text-emerald-500 ml-1">· Só você</span>
+                          )}
+                        </p>
                       </div>
+                      <p className="text-sm font-semibold text-gray-800 flex-shrink-0">-{formatCurrency(t.amount)}</p>
                     </div>
                   )
                 })}
               </div>
             </div>
-          )}
-
-          {data.totalWithdrawn === 0 && data.installmentGroups.length === 0 && (
+          ) : data.transactions.length > 0 ? (
+            <div className="bg-white rounded-2xl py-8 text-center shadow-sm border border-emerald-50">
+              <p className="text-gray-400 text-sm">Nenhuma transação em {selectedCategory}</p>
+            </div>
+          ) : (
             <div className="bg-white rounded-2xl py-16 text-center shadow-sm border border-emerald-50">
               <p className="text-4xl mb-3">👛</p>
               <p className="text-gray-500 font-medium">Nenhum gasto registrado</p>
@@ -376,6 +319,93 @@ export default function Carteira() {
             </div>
           )}
         </>
+      )}
+
+      {/* Installment detail modal */}
+      {selectedInstallment && (
+        <div
+          className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+          onClick={() => setSelectedInstallment(null)}
+        >
+          <div
+            className="bg-white rounded-2xl p-5 w-full max-w-sm shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal header */}
+            <div className="flex items-start justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl">{CATEGORY_ICONS[selectedInstallment.category] || '📦'}</span>
+                <div>
+                  <p className="font-bold text-gray-800 leading-tight">{selectedInstallment.description}</p>
+                  <p className="text-xs text-gray-400">{selectedInstallment.category}</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedInstallment(null)}
+                className="text-gray-300 hover:text-gray-500 transition-colors text-2xl leading-none mt-0.5"
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Status badge */}
+            <span className={`inline-flex text-xs px-2.5 py-1 rounded-full font-semibold mb-4 ${
+              selectedInstallment.futureCount === 0
+                ? 'bg-emerald-100 text-emerald-700'
+                : 'bg-indigo-50 text-indigo-600'
+            }`}>
+              {selectedInstallment.futureCount === 0
+                ? '✅ Quitado'
+                : `📅 ${selectedInstallment.withdrawnCount}/${selectedInstallment.parcelas}x · ${selectedInstallment.futureCount} restantes`}
+            </span>
+
+            {/* Progress bar */}
+            <div className="flex justify-between text-xs text-gray-400 mb-1">
+              <span>{selectedInstallment.withdrawnCount} pagas</span>
+              <span>{formatCurrency(selectedInstallment.monthlyAmount)}/mês</span>
+            </div>
+            <div className="w-full bg-gray-100 rounded-full h-2.5 mb-4">
+              <div
+                className={`h-2.5 rounded-full transition-all ${
+                  selectedInstallment.futureCount === 0 ? 'bg-emerald-500' : 'bg-indigo-400'
+                }`}
+                style={{ width: `${(selectedInstallment.withdrawnCount / selectedInstallment.parcelas) * 100}%` }}
+              />
+            </div>
+
+            {/* Stats grid */}
+            <div className="grid grid-cols-3 gap-2 mb-4">
+              <div className="bg-gray-50 rounded-xl p-3 text-center">
+                <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Retirado</p>
+                <p className="text-sm font-bold text-gray-800 mt-1">{formatCurrency(selectedInstallment.withdrawnAmount)}</p>
+              </div>
+              <div className="bg-orange-50 rounded-xl p-3 text-center">
+                <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Restante</p>
+                <p className="text-sm font-bold text-orange-500 mt-1">{formatCurrency(selectedInstallment.futureAmount)}</p>
+              </div>
+              <div className="bg-emerald-50 rounded-xl p-3 text-center">
+                <p className="text-[10px] text-gray-400 font-medium uppercase tracking-wide">Total</p>
+                <p className="text-sm font-bold text-emerald-700 mt-1">{formatCurrency(selectedInstallment.totalParcelado)}</p>
+              </div>
+            </div>
+
+            {/* Cancel button */}
+            {selectedInstallment.futureIds.length > 0 && (
+              <button
+                onClick={() => {
+                  cancelGroup(selectedInstallment)
+                  setSelectedInstallment(null)
+                }}
+                disabled={cancellingGroup === selectedInstallment.description}
+                className="w-full py-2.5 rounded-xl text-sm font-semibold text-red-500 border border-red-100 hover:bg-red-50 transition-colors disabled:opacity-40"
+              >
+                {cancellingGroup === selectedInstallment.description
+                  ? 'Cancelando...'
+                  : `🗑️ Cancelar ${selectedInstallment.futureIds.length} parcelas restantes`}
+              </button>
+            )}
+          </div>
+        </div>
       )}
     </div>
   )
