@@ -98,6 +98,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Máximo de 72 parcelas' }, { status: 400 })
     }
 
+    const parcelaGroupId = db.collection('expenses').doc().id
+
     const batch = db.batch()
     const ids: string[] = []
     const createdAt = Timestamp.now()
@@ -118,6 +120,7 @@ export async function POST(request: NextRequest) {
         parcelas: parcelasNum,
         parcelaAtual: i + 1,
         totalParcelado: totalParcelado ? parseFloat(totalParcelado) : monthlyAmount * parcelasNum,
+        parcelaGroupId,
       })
     }
 
