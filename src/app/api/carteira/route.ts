@@ -81,6 +81,28 @@ export async function GET(request: NextRequest) {
       .map(([category, total]) => ({ category, total }))
       .sort((a, b) => b.total - a.total)
 
+    // Category breakdown committed — for "Tudo" view:
+    // installments counted as totalParcelado (once per group), not per withdrawn parcela
+    const categoryMapCommitted: Record<string, number> = {}
+    const seenInstallmentKeys = new Set<string>()
+    for (const e of outflows) {
+      if (e.parcelas) {
+        const key = e.parcelaGroupId
+          ?? `${e.description}__${e.parcelas}__${e.totalParcelado ?? e.amount * e.parcelas}`
+        if (!seenInstallmentKeys.has(key)) {
+          seenInstallmentKeys.add(key)
+          const total = e.totalParcelado ?? e.amount * e.parcelas
+          categoryMapCommitted[e.category] = (categoryMapCommitted[e.category] ?? 0) + total
+        }
+      } else {
+        categoryMapCommitted[e.category] = (categoryMapCommitted[e.category] ?? 0) + e.amount
+      }
+    }
+    const categoryBreakdownCommitted = Object.entries(categoryMapCommitted)
+      .map(([category, total]) => ({ category, total }))
+      .sort((a, b) => b.total - a.total)
+    const totalCommitted = categoryBreakdownCommitted.reduce((s, c) => s + c.total, 0)
+
     // Installment groups
     const installmentMap: Record<string, {
       description: string
@@ -165,10 +187,12 @@ export async function GET(request: NextRequest) {
       period,
       totalWithdrawn,
       totalFuture,
+      totalCommitted,
       transactionCount: periodWithdrawn.length,
       installmentGroups,
       categoryBreakdown,
       categoryBreakdownFull,
+      categoryBreakdownCommitted,
       monthlyBreakdown,
       transactions,
     })

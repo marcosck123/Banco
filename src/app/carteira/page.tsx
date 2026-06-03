@@ -44,10 +44,12 @@ interface CarteiraData {
   period: string
   totalWithdrawn: number
   totalFuture: number
+  totalCommitted: number
   transactionCount: number
   installmentGroups: InstallmentGroup[]
   categoryBreakdown: CategoryBreakdown[]
   categoryBreakdownFull: CategoryBreakdown[]
+  categoryBreakdownCommitted: CategoryBreakdown[]
   monthlyBreakdown: MonthlyBreakdown[]
   transactions: Transaction[]
 }
@@ -240,40 +242,52 @@ export default function Carteira() {
           </div>
 
           {/* Category filter pills */}
-          {data.categoryBreakdown.length > 0 && (
-            <div>
-              <p className="text-sm font-bold text-gray-700 mb-2">Por categoria</p>
-              <div className="flex gap-2 flex-wrap">
-                <button
-                  onClick={() => setSelectedCategory(null)}
-                  className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
-                    !selectedCategory
-                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                      : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300'
-                  }`}
-                >
-                  Tudo · {formatCurrency(data.totalWithdrawn)}
-                </button>
-                {data.categoryBreakdown.map(({ category, total }) => (
+          {data.categoryBreakdown.length > 0 && (() => {
+            const isAll = period === 'all'
+            const cats = isAll ? data.categoryBreakdownCommitted : data.categoryBreakdown
+            const grandTotal = isAll ? data.totalCommitted : data.totalWithdrawn
+            return (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-bold text-gray-700">Por categoria</p>
+                  {isAll && (
+                    <span className="text-[10px] text-indigo-500 font-semibold bg-indigo-50 px-2 py-0.5 rounded-full">
+                      Total comprometido
+                    </span>
+                  )}
+                </div>
+                <div className="flex gap-2 flex-wrap">
                   <button
-                    key={category}
-                    onClick={() => setSelectedCategory(selectedCategory === category ? null : category)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
-                      selectedCategory === category
+                    onClick={() => setSelectedCategory(null)}
+                    className={`flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                      !selectedCategory
                         ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
                         : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300'
                     }`}
                   >
-                    <span>{CATEGORY_ICONS[category] || '📦'}</span>
-                    <span>{category}</span>
-                    <span className={`font-normal ${selectedCategory === category ? 'text-emerald-100' : 'text-gray-400'}`}>
-                      {formatCurrency(total)}
-                    </span>
+                    Tudo · {formatCurrency(grandTotal)}
                   </button>
-                ))}
+                  {cats.map(({ category, total }) => (
+                    <button
+                      key={category}
+                      onClick={() => setSelectedCategory(selectedCategory === category ? null : category)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                        selectedCategory === category
+                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                          : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300'
+                      }`}
+                    >
+                      <span>{CATEGORY_ICONS[category] || '📦'}</span>
+                      <span>{category}</span>
+                      <span className={`font-normal ${selectedCategory === category ? 'text-emerald-100' : 'text-gray-400'}`}>
+                        {formatCurrency(total)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )
+          })()}
 
           {/* Transaction list */}
           {filteredTransactions.length > 0 ? (

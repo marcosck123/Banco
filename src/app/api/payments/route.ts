@@ -22,51 +22,40 @@ export async function POST(request: NextRequest) {
   try {
     const db = getDb()
     const body = await request.json()
-    const { expenseIds, month, year } = body
+    const { user1Paid, user2Paid, month, year } = body
 
-    if (!expenseIds || !Array.isArray(expenseIds) || expenseIds.length === 0) {
-      return NextResponse.json({ error: 'Selecione ao menos uma despesa' }, { status: 400 })
-    }
     if (!month || !year) {
       return NextResponse.json({ error: 'Mês e ano são obrigatórios' }, { status: 400 })
     }
 
-    const expenseDocs = await Promise.all(
-      expenseIds.map((id: string) => db.collection('expenses').doc(id).get())
-    )
+    const u1 = parseFloat(user1Paid) || 0
+    const u2 = parseFloat(user2Paid) || 0
 
-    const expenses = expenseDocs
-      .filter((d) => d.exists)
-      .map((d) => ({ id: d.id, ...d.data() } as any))
+    // Fetch all unpaid expenses for this month and mark them as paid
+    const { Timestamp: TS } = await import('firebase-admin/firestore')
+    const startDate = TS.fromDate(new Date(parseInt(year), parseInt(month) - 1, 1))
+    const endDate = TS.fromDate(new Date(parseInt(year), parseInt(month), 0, 23, 59, 59, 999))
 
-    if (expenses.length === 0) {
-      return NextResponse.json({ error: 'Despesas não encontradas' }, { status: 404 })
-    }
+    const expSnap = await db.collection('expenses')
+      .where('date', '>=', startDate)
+      .where('date', '<=', endDate)
+      .where('paid', '==', false)
+      .get()
 
-    const totalAmount = expenses.reduce((sum: number, e: any) => sum + e.amount, 0)
-
-    const sharedTotal = expenses
-      .filter((e: any) => e.splitType === 'shared' || !e.splitType)
-      .reduce((sum: number, e: any) => sum + e.amount, 0)
-
-    const user1OnlyTotal = expenses
-      .filter((e: any) => e.splitType === 'user1_only')
-      .reduce((sum: number, e: any) => sum + e.amount, 0)
-
-    const user2OnlyTotal = expenses
-      .filter((e: any) => e.splitType === 'user2_only')
-      .reduce((sum: number, e: any) => sum + e.amount, 0)
+    const expenseIds = expSnap.docs
+      .filter((d) => d.data().recordType !== 'investimento')
+      .map((d) => d.id)
 
     const batch = db.batch()
 
     const paymentRef = db.collection('payments').doc()
     batch.set(paymentRef, {
-      amount: totalAmount,
-      user1Amount: sharedTotal / 2 + user1OnlyTotal,
-      user2Amount: sharedTotal / 2 + user2OnlyTotal,
+      user1Paid: u1,
+      user2Paid: u2,
+      totalPaid: u1 + u2,
       month: parseInt(month),
       year: parseInt(year),
-      expenseCount: expenses.length,
+      expenseCount: expenseIds.length,
       expenseIds,
       paidAt: Timestamp.now(),
     })
@@ -77,7 +66,7 @@ export async function POST(request: NextRequest) {
 
     await batch.commit()
 
-    return NextResponse.json({ id: paymentRef.id }, { status: 201 })
+    return NextResponse.json({ id: paymentRef.id, expenseCount: expenseIds.length }, { status: 201 })
   } catch (error) {
     console.error('Error creating payment:', error)
     return NextResponse.json({ error: 'Erro ao registrar pagamento' }, { status: 500 })
