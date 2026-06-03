@@ -40,11 +40,21 @@ export async function GET(request: NextRequest) {
   }
 }
 
+function addMonths(date: Date, months: number): Date {
+  const d = new Date(date)
+  d.setMonth(d.getMonth() + months)
+  return d
+}
+
 export async function POST(request: NextRequest) {
   try {
     const db = getDb()
     const body = await request.json()
-    const { amount, description, paidBy, category, date, splitType = 'shared', recordType = 'despesa', parcelas, parcelaAtual, totalParcelado } = body
+    const {
+      amount, description, paidBy, category, date,
+      splitType = 'shared', recordType = 'despesa',
+      parcelas, totalParcelado,
+    } = body
 
     if (!amount || !description || !paidBy || !category || !date) {
       return NextResponse.json({ error: 'Todos os campos são obrigatórios' }, { status: 400 })
@@ -62,27 +72,58 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Tipo de registro inválido' }, { status: 400 })
     }
 
-    const docData: Record<string, unknown> = {
-      amount: parseFloat(amount),
-      description,
-      paidBy,
-      category,
-      date: Timestamp.fromDate(new Date(date)),
-      splitType,
-      recordType,
-      paid: false,
-      createdAt: Timestamp.now(),
+    const parcelasNum = parcelas ? parseInt(parcelas) : 1
+    const baseDate = new Date(date)
+    const monthlyAmount = parseFloat(amount)
+
+    // Single expense (no installments)
+    if (parcelasNum <= 1) {
+      const docRef = await db.collection('expenses').add({
+        amount: monthlyAmount,
+        description,
+        paidBy,
+        category,
+        date: Timestamp.fromDate(baseDate),
+        splitType,
+        recordType,
+        paid: false,
+        createdAt: Timestamp.now(),
+      })
+      return NextResponse.json({ id: docRef.id }, { status: 201 })
     }
 
-    if (parcelas && parcelaAtual) {
-      docData.parcelas = parseInt(parcelas)
-      docData.parcelaAtual = parseInt(parcelaAtual)
-      if (totalParcelado) docData.totalParcelado = parseFloat(totalParcelado)
+    // Create all installments atomically via batch
+    // Firestore batch limit is 500 writes
+    if (parcelasNum > 72) {
+      return NextResponse.json({ error: 'Máximo de 72 parcelas' }, { status: 400 })
     }
 
-    const docRef = await db.collection('expenses').add(docData)
+    const batch = db.batch()
+    const ids: string[] = []
+    const createdAt = Timestamp.now()
 
-    return NextResponse.json({ id: docRef.id }, { status: 201 })
+    for (let i = 0; i < parcelasNum; i++) {
+      const ref = db.collection('expenses').doc()
+      ids.push(ref.id)
+      batch.set(ref, {
+        amount: monthlyAmount,
+        description,
+        paidBy,
+        category,
+        date: Timestamp.fromDate(addMonths(baseDate, i)),
+        splitType,
+        recordType,
+        paid: false,
+        createdAt,
+        parcelas: parcelasNum,
+        parcelaAtual: i + 1,
+        totalParcelado: totalParcelado ? parseFloat(totalParcelado) : monthlyAmount * parcelasNum,
+      })
+    }
+
+    await batch.commit()
+
+    return NextResponse.json({ ids, parcelas: parcelasNum }, { status: 201 })
   } catch (error) {
     console.error('Error creating expense:', error)
     return NextResponse.json({ error: 'Erro ao criar despesa' }, { status: 500 })

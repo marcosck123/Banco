@@ -97,7 +97,7 @@ export default function NovaTransacao() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          amount: savedAmount,
+          amount: parcelado && parcelaValor ? parcelaValor : amountNum,
           description: form.description.trim(),
           category: form.category,
           paidBy: form.paidBy,
@@ -106,7 +106,6 @@ export default function NovaTransacao() {
           recordType,
           ...(parcelado && parcelasNum > 1 ? {
             parcelas: parcelasNum,
-            parcelaAtual: 1,
             totalParcelado: amountNum,
           } : {}),
         }),
@@ -139,12 +138,22 @@ export default function NovaTransacao() {
           <span className="text-4xl">{isInvestment ? '💰' : '✅'}</span>
         </div>
         <p className="text-xl font-bold text-gray-800">
-          {isInvestment ? 'Investimento registrado!' : recordType === 'pagamento' ? 'Pagamento registrado!' : 'Despesa adicionada!'}
+          {isInvestment
+            ? 'Investimento registrado!'
+            : recordType === 'pagamento'
+            ? 'Pagamento registrado!'
+            : parcelado && parcelasNum > 1
+            ? `${parcelasNum} parcelas criadas!`
+            : 'Despesa adicionada!'}
         </p>
         {parcelado && parcelaValor && (
-          <p className="text-gray-500 text-sm">
-            Parcela 1/{parcelasNum} · R$ {formatBRL(parcelaValor)}/mês
-          </p>
+          <div className="bg-emerald-50 rounded-2xl px-5 py-3 text-center">
+            <p className="text-emerald-700 font-semibold">R$ {formatBRL(parcelaValor)}/mês</p>
+            <p className="text-emerald-500 text-xs mt-0.5">
+              {parcelasNum}x · total R$ {formatBRL(parseBRL(form.amount))}
+            </p>
+            <p className="text-gray-400 text-xs mt-1">Lançadas nos próximos {parcelasNum} meses</p>
+          </div>
         )}
         <p className="text-gray-400 text-sm">Redirecionando...</p>
       </div>
