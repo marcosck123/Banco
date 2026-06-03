@@ -49,6 +49,7 @@ interface CarteiraData {
   transactionCount: number
   installmentGroups: InstallmentGroup[]
   categoryBreakdown: CategoryBreakdown[]
+  categoryBreakdownFull: CategoryBreakdown[]
   monthlyBreakdown: MonthlyBreakdown[]
   transactions: Transaction[]
 }
@@ -73,6 +74,7 @@ export default function Carteira() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [cancellingGroup, setCancellingGroup] = useState<string | null>(null)
+  const [categoryView, setCategoryView] = useState<'withdrawn' | 'full'>('withdrawn')
 
   const fetchData = async (p: Period) => {
     setLoading(true)
@@ -272,10 +274,37 @@ export default function Carteira() {
           {/* Category breakdown */}
           {data.categoryBreakdown.length > 0 && (
             <div>
-              <h2 className="font-bold text-gray-800 mb-3">Por categoria</h2>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="font-bold text-gray-800">Por categoria</h2>
+                <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
+                  <button
+                    onClick={() => setCategoryView('withdrawn')}
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                      categoryView === 'withdrawn'
+                        ? 'bg-white text-emerald-700 shadow-sm'
+                        : 'text-gray-500'
+                    }`}
+                  >
+                    Retirado
+                  </button>
+                  <button
+                    onClick={() => setCategoryView('full')}
+                    className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                      categoryView === 'full'
+                        ? 'bg-white text-emerald-700 shadow-sm'
+                        : 'text-gray-500'
+                    }`}
+                  >
+                    Total
+                  </button>
+                </div>
+              </div>
               <div className="bg-white rounded-2xl shadow-sm border border-emerald-50 overflow-hidden">
-                {data.categoryBreakdown.map(({ category, total }, i) => {
-                  const pct = (total / data.totalWithdrawn) * 100
+                {(categoryView === 'withdrawn' ? data.categoryBreakdown : data.categoryBreakdownFull).map(({ category, total }, i) => {
+                  const base = categoryView === 'withdrawn'
+                    ? data.totalWithdrawn
+                    : data.totalWithdrawn + data.totalFuture
+                  const pct = base > 0 ? (total / base) * 100 : 0
                   return (
                     <div key={category} className={`flex items-center gap-3 px-4 py-3 ${i > 0 ? 'border-t border-gray-50' : ''}`}>
                       <span className="text-xl w-8 text-center">{CATEGORY_ICONS[category] || '📦'}</span>
@@ -286,7 +315,7 @@ export default function Carteira() {
                         </div>
                         <div className="w-full bg-gray-100 rounded-full h-1.5">
                           <div
-                            className="h-1.5 rounded-full bg-emerald-400"
+                            className={`h-1.5 rounded-full ${categoryView === 'full' ? 'bg-indigo-400' : 'bg-emerald-400'}`}
                             style={{ width: `${pct}%` }}
                           />
                         </div>
@@ -296,6 +325,9 @@ export default function Carteira() {
                   )
                 })}
               </div>
+              {categoryView === 'full' && (
+                <p className="text-xs text-gray-400 mt-2 text-center">Inclui parcelas futuras comprometidas</p>
+              )}
             </div>
           )}
 

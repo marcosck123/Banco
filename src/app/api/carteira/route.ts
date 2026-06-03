@@ -57,12 +57,21 @@ export async function GET(request: NextRequest) {
     const totalWithdrawn = periodWithdrawn.reduce((s, e) => s + e.amount, 0)
     const totalFuture = future.reduce((s, e) => s + e.amount, 0)
 
-    // Category breakdown (period filtered)
+    // Category breakdown (period filtered — already withdrawn)
     const categoryMap: Record<string, number> = {}
     for (const e of periodWithdrawn) {
       categoryMap[e.category] = (categoryMap[e.category] ?? 0) + e.amount
     }
     const categoryBreakdown = Object.entries(categoryMap)
+      .map(([category, total]) => ({ category, total }))
+      .sort((a, b) => b.total - a.total)
+
+    // Category breakdown full — withdrawn + all future (total committed)
+    const categoryMapFull: Record<string, number> = {}
+    for (const e of outflows) {
+      categoryMapFull[e.category] = (categoryMapFull[e.category] ?? 0) + e.amount
+    }
+    const categoryBreakdownFull = Object.entries(categoryMapFull)
       .map(([category, total]) => ({ category, total }))
       .sort((a, b) => b.total - a.total)
 
@@ -153,6 +162,7 @@ export async function GET(request: NextRequest) {
       transactionCount: periodWithdrawn.length,
       installmentGroups,
       categoryBreakdown,
+      categoryBreakdownFull,
       monthlyBreakdown,
       transactions,
     })
