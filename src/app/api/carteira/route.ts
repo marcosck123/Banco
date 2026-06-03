@@ -131,6 +131,21 @@ export async function GET(request: NextRequest) {
     }
     const monthlyBreakdown = Object.entries(monthlyMap).map(([month, total]) => ({ month, total }))
 
+    // Individual transactions for the period (sorted newest first)
+    const transactions = periodWithdrawn
+      .sort((a, b) => b.date.getTime() - a.date.getTime())
+      .map((e) => ({
+        id: e.id,
+        description: e.description,
+        amount: e.amount,
+        category: e.category,
+        paidBy: e.paidBy,
+        splitType: e.splitType,
+        parcelas: e.parcelas,
+        parcelaAtual: e.parcelaAtual,
+        date: e.date.toISOString(),
+      }))
+
     return NextResponse.json({
       period,
       totalWithdrawn,
@@ -139,6 +154,7 @@ export async function GET(request: NextRequest) {
       installmentGroups,
       categoryBreakdown,
       monthlyBreakdown,
+      transactions,
     })
   } catch (error) {
     console.error('Error fetching carteira:', error)

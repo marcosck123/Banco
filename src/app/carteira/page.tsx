@@ -5,6 +5,18 @@ import { formatCurrency, CATEGORY_ICONS } from '@/lib/utils'
 
 type Period = 'month' | '3m' | '6m' | 'all'
 
+interface Transaction {
+  id: string
+  description: string
+  amount: number
+  category: string
+  paidBy: string
+  splitType: string
+  parcelas?: number
+  parcelaAtual?: number
+  date: string
+}
+
 interface InstallmentGroup {
   description: string
   parcelas: number
@@ -38,6 +50,7 @@ interface CarteiraData {
   installmentGroups: InstallmentGroup[]
   categoryBreakdown: CategoryBreakdown[]
   monthlyBreakdown: MonthlyBreakdown[]
+  transactions: Transaction[]
 }
 
 const PERIOD_LABELS: Record<Period, string> = {
@@ -279,6 +292,43 @@ export default function Carteira() {
                         </div>
                       </div>
                       <p className="text-xs text-gray-400 w-8 text-right">{Math.round(pct)}%</p>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Transactions list */}
+          {data.transactions.length > 0 && (
+            <div>
+              <h2 className="font-bold text-gray-800 mb-3">Transações do período</h2>
+              <div className="bg-white rounded-2xl shadow-sm border border-emerald-50 overflow-hidden">
+                {data.transactions.map((t, i) => {
+                  const date = new Date(t.date)
+                  const dateStr = `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`
+                  return (
+                    <div key={t.id} className={`flex items-center gap-3 px-4 py-3 ${i > 0 ? 'border-t border-gray-50' : ''}`}>
+                      <span className="text-xl w-8 text-center flex-shrink-0">{CATEGORY_ICONS[t.category] || '📦'}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-start">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-gray-800 truncate">{t.description}</p>
+                            <p className="text-xs text-gray-400">
+                              {dateStr}
+                              {t.parcelas && t.parcelaAtual && (
+                                <span className="ml-1 text-indigo-500">· {t.parcelaAtual}/{t.parcelas}x</span>
+                              )}
+                              {t.splitType === 'user1_only' || t.splitType === 'user2_only' ? (
+                                <span className="ml-1 text-emerald-500">· Só você</span>
+                              ) : null}
+                            </p>
+                          </div>
+                          <p className="text-sm font-semibold text-gray-800 ml-2 flex-shrink-0">
+                            -{formatCurrency(t.amount)}
+                          </p>
+                        </div>
+                      </div>
                     </div>
                   )
                 })}
