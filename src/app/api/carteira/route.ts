@@ -75,6 +75,7 @@ export async function GET(request: NextRequest) {
       splitType: string
       paidBy: string
       category: string
+      futureIds: string[]
       withdrawnCount: number
       futureCount: number
       withdrawnAmount: number
@@ -95,6 +96,7 @@ export async function GET(request: NextRequest) {
           splitType: e.splitType,
           paidBy: e.paidBy,
           category: e.category,
+          futureIds: [],
           withdrawnCount: 0,
           futureCount: 0,
           withdrawnAmount: 0,
@@ -108,6 +110,7 @@ export async function GET(request: NextRequest) {
       } else {
         installmentMap[key].futureCount++
         installmentMap[key].futureAmount += e.amount
+        installmentMap[key].futureIds.push(e.id)
       }
     }
 

@@ -13,6 +13,7 @@ interface InstallmentGroup {
   splitType: string
   paidBy: string
   category: string
+  futureIds: string[]
   withdrawnCount: number
   futureCount: number
   withdrawnAmount: number
@@ -58,6 +59,7 @@ export default function Carteira() {
   const [data, setData] = useState<CarteiraData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [cancellingGroup, setCancellingGroup] = useState<string | null>(null)
 
   const fetchData = async (p: Period) => {
     setLoading(true)
@@ -77,6 +79,23 @@ export default function Carteira() {
   }
 
   useEffect(() => { fetchData(period) }, [period])
+
+  const cancelGroup = async (group: InstallmentGroup) => {
+    if (!confirm(`Cancelar as ${group.futureIds.length} parcelas restantes de "${group.description}"?`)) return
+    setCancellingGroup(group.description)
+    try {
+      await Promise.all(
+        group.futureIds.map((id) =>
+          fetch(`/api/expenses/${id}`, { method: 'DELETE', signal: AbortSignal.timeout(12000) })
+        )
+      )
+      await fetchData(period)
+    } catch {
+      setError('Erro ao cancelar parcelas.')
+    } finally {
+      setCancellingGroup(null)
+    }
+  }
 
   const maxMonthly = data
     ? Math.max(...data.monthlyBreakdown.map((m) => m.total), 1)
@@ -151,7 +170,7 @@ export default function Carteira() {
                   return (
                     <div key={month} className="flex-1 flex flex-col items-center gap-1">
                       <p className="text-xs text-gray-400 font-medium">
-                        {total > 0 ? formatCurrency(total).replace('R$ ', '') : ''}
+                        {total > 0 ? formatCurrency(total).replace('R$ ', '') : ''}
                       </p>
                       <div className="w-full flex items-end" style={{ height: 56 }}>
                         <div
@@ -218,6 +237,18 @@ export default function Carteira() {
                           Total: <span className="font-semibold text-gray-700">{formatCurrency(group.totalParcelado)}</span>
                         </span>
                       </div>
+
+                      {!isDone && group.futureIds.length > 0 && (
+                        <button
+                          onClick={() => cancelGroup(group)}
+                          disabled={cancellingGroup === group.description}
+                          className="mt-3 w-full py-2 rounded-xl text-xs font-semibold text-red-500 border border-red-100 hover:bg-red-50 transition-colors disabled:opacity-40"
+                        >
+                          {cancellingGroup === group.description
+                            ? 'Cancelando...'
+                            : `🗑️ Cancelar ${group.futureIds.length} parcelas restantes`}
+                        </button>
+                      )}
                     </div>
                   )
                 })}
